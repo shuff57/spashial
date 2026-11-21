@@ -1,0 +1,319 @@
+// THE reference. One row per name. The docs site draws its reference page and its physics tables
+// from this file, and tests/docs.test.mjs checks every row against the running engine and
+// docs/spashial.d.ts. So adding a new property to the engine is:
+//
+//   1. add it to spashial.js (and physics.js if it reaches Jolt),
+//   2. add it to docs/spashial.d.ts,
+//   3. add ONE row here.
+//
+// The tests then tell you if the row lies (the name is missing, or the default is wrong).
+//
+// A row:
+//   name      the property or method name
+//   kind      'property' | 'readonly' | 'method'
+//   type      shown as written ('number', 'Vector', 'string | null' ...)
+//   default   what a new Cube has (a JS value, checked by the tests; leave it out for vectors and methods)
+//   units     'units per frame', 'degrees', 'per second' ... (leave out if none)
+//   group     which table it is in (Solid rows: position, size, looks, physics, forces, helpers, touch, other)
+//   text      one or two plain sentences; write it for a beginner. No dashes (the tests forbid them).
+//   try       optional. Statements run in setup() on `c`, a tomato cube 3 units up, above a floor named `floor`.
+//             Gives the row a "Try it" button on the physics page.
+//   tryUpdate optional. Statements run in update() each frame.
+//
+// `object` says where the tests look for the name:
+//   'Solid' -> Solid.prototype, 'Group' -> Group.prototype, 'world' / 'camera' / 'kb' / 'mouse' ->
+//   that object, 'HingeJoint' ... -> that class's prototype, 'global' -> window.
+
+export const REFERENCE = [
+  {
+    object: 'Solid', title: 'Solid',
+    intro: 'Every 3D object is a Solid. `new Cube()`, `new Sphere()` and the other shapes are Solids with a shape already chosen. A Solid has a look (colour, shine) and a body (it can fall, bounce, be pushed and be touched).',
+    members: [
+      // ---- position and motion
+      { name: 'pos', kind: 'property', type: 'Vector', group: 'position', text: 'Where its middle is. It is live: `c.pos.y += 1` moves it up one unit, and `c.pos = [1, 2, 3]` teleports it.', try: 'c.pos = [2, 5, 0];' },
+      { name: 'x', kind: 'property', type: 'number', group: 'position', text: 'Shortcut for `pos.x`. `y` and `z` work the same way.' },
+      { name: 'y', kind: 'property', type: 'number', group: 'position', text: 'Shortcut for `pos.y`: how high it is.' },
+      { name: 'z', kind: 'property', type: 'number', group: 'position', text: 'Shortcut for `pos.z`: how far toward you it is.' },
+      { name: 'vel', kind: 'property', type: 'Vector', units: 'units per frame', group: 'position', text: 'How fast it is moving, in units per frame (60 frames a second). Set it to move a body yourself, or read it to see what physics did.', try: 'c.vel.x = 0.08;' },
+      { name: 'rotation', kind: 'property', type: 'Vector', units: 'degrees', group: 'position', text: 'How far it is turned, as three angles in degrees: turn (y), pitch (x) and roll (z). Setting it wins over physics for that frame, so for a falling body prefer forces.', try: 'c.rotation = [0, 45, 0];' },
+      { name: 'angularVelocity', kind: 'property', type: 'Vector', units: 'degrees per frame', group: 'position', text: 'How fast it is spinning, in degrees per frame about each axis.', try: 'c.angularVelocity.y = 4;' },
+      // ---- size
+      { name: 'w', kind: 'property', type: 'number', group: 'size', text: 'Width (x). Setting it resizes the collider too. Read only on a Hull and a TriangleMesh.' },
+      { name: 'h', kind: 'property', type: 'number', group: 'size', text: 'Height (y). A torus uses `h` for the thickness of its ring.' },
+      { name: 'd', kind: 'property', type: 'number', group: 'size', text: 'Depth (z).' },
+      { name: 'diameter', kind: 'property', type: 'number', group: 'size', text: 'Across, for the round shapes (a sphere has just this one size).' },
+      { name: 'shape', kind: 'property', type: "'box' | 'sphere' | 'cylinder' | 'capsule' | 'cone' | 'torus'", group: 'size', text: 'The shape. You can change it after making the Solid. A Hull or TriangleMesh reads back as `hull` or `triangles` and cannot be changed.', try: "c.shape = 'sphere';" },
+      { name: 'scale', kind: 'property', type: 'Vector | number', group: 'size', text: 'How big it LOOKS. The collider keeps its size, so a scaled solid still touches things where it used to.' },
+      { name: 'scaleBy', kind: 'method', type: '(x, y?, z?) => void', group: 'size', text: 'Multiplies the look by these numbers, on top of what it is now.' },
+      // ---- looks
+      { name: 'color', kind: 'property', type: 'string', default: '#8be9fd', group: 'looks', text: "Any CSS colour: `'tomato'`, `'#ff79c6'`, `'rgb(80, 250, 123)'`.", try: "c.color = 'gold';" },
+      { name: 'opacity', kind: 'property', type: 'number', default: 1, group: 'looks', text: '1 is solid, 0 is invisible. It still collides when you cannot see it.', try: 'c.opacity = 0.4;' },
+      { name: 'metalness', kind: 'property', type: 'number', default: 0, group: 'looks', text: '0 is matt like chalk, 1 is polished metal.', try: 'c.metalness = 1; c.roughness = 0.2;' },
+      { name: 'roughness', kind: 'property', type: 'number', default: 0.8, group: 'looks', text: '0 is a mirror finish, 1 is completely dull.' },
+      { name: 'visible', kind: 'property', type: 'boolean', default: true, group: 'looks', text: 'false hides it. It still collides.' },
+      // ---- physics
+      { name: 'collider', kind: 'property', type: "'dynamic' | 'static' | 'kinematic' | 'none'", default: 'dynamic', group: 'physics', text: "What kind of body it is. `'dynamic'` falls and is pushed. `'static'` never moves (floors and walls). `'kinematic'` moves only when you move it, but pushes and carries things. `'none'` is a sensor: nothing bumps into it, but it still reports overlaps.", try: "c.collider = 'static';" },
+      { name: 'bounciness', kind: 'property', type: 'number', default: 0, group: 'physics', text: '0 does not bounce, 1 bounces back as high as it fell. When two bodies touch, the bouncier of the two wins.', try: 'c.bounciness = 0.8;' },
+      { name: 'friction', kind: 'property', type: 'number', default: 0.5, group: 'physics', text: 'How much it grips what it slides on. 0 is ice. Two bodies grip with the geometric mean of their frictions.', try: 'c.friction = 0; floor.friction = 0; c.vel.x = 0.1;' },
+      { name: 'density', kind: 'property', type: 'number', default: 1, group: 'physics', text: 'Mass per cubic unit. A 1 unit cube of density 1 weighs 1 kg. A bigger shape of the same density weighs more.', try: 'c.density = 5;' },
+      { name: 'mass', kind: 'property', type: 'number', default: 1, units: 'kg', group: 'physics', text: 'How heavy it is. Worked out from size and density; setting it by hand overrides that. A static, kinematic or sensor solid reads 0.', try: 'c.mass = 20;' },
+      { name: 'lockRotation', kind: 'property', type: 'boolean | { x?, y?, z? }', default: false, group: 'physics', text: 'true stops it tipping over, which is what a character needs. Pass `{ x: true, z: true }` to lock only those axes and let it still turn about y.', try: 'c.lockRotation = true; c.applyImpulse(2, 0, 0.5);' },
+      { name: 'drag', kind: 'property', type: 'number', default: 0.05, units: 'per second', group: 'physics', text: 'How quickly it loses speed to the air. 0 keeps going for ever, big numbers feel like moving through water.', try: 'c.drag = 2; c.vel.x = 0.2;' },
+      { name: 'rotationDrag', kind: 'property', type: 'number', default: 0.05, units: 'per second', group: 'physics', text: 'How quickly its spin dies away.', try: 'c.rotationDrag = 0; c.angularVelocity.y = 5;' },
+      { name: 'gravityScale', kind: 'property', type: 'number', default: 1, group: 'physics', text: 'Multiplies world gravity for this solid only. 1 is normal, 0 is weightless, -1 falls upward, 0.3 is floaty.', try: 'c.gravityScale = -0.5;' },
+      { name: 'isSuperFast', kind: 'property', type: 'boolean', default: false, group: 'physics', text: 'Turns on continuous collision for a body so fast it could jump through a thin wall in one step (a bullet). It costs a little more each frame, so leave it off for slow things.', try: 'c.isSuperFast = true; c.vel.x = 3;' },
+      { name: 'maxSpeed', kind: 'property', type: 'number | null', default: Infinity, units: 'units per frame', group: 'physics', text: 'The fastest it may go. `Infinity` (the default) means no limit of its own. You may also set `null`, which means the same.', try: 'c.maxSpeed = 0.05; c.applyImpulse(20, 0, 0);' },
+      { name: 'maxSpin', kind: 'property', type: 'number | null', default: Infinity, units: 'degrees per frame', group: 'physics', text: 'The fastest it may spin. `Infinity` (the default) means no limit of its own. You may also set `null`, which means the same.', try: 'c.maxSpin = 2; c.applyAngularImpulse(0, 20, 0);' },
+      { name: 'allowSleeping', kind: 'property', type: 'boolean', default: true, group: 'physics', text: 'Physics lets a body that has stopped moving go to sleep, which costs nothing. false keeps this one awake (a body that has to notice things changing under it).' },
+      { name: 'sleeping', kind: 'readonly', type: 'boolean', group: 'physics', text: 'true while physics is letting it rest because it stopped moving.' },
+      { name: 'collisionGroup', kind: 'property', type: 'string | null', default: null, group: 'physics', text: "A name. After `world.ignoreCollisions('bullets', 'player')`, solids in those two groups pass through each other. null means in no group (it collides with everything)." },
+      { name: 'centerOfMass', kind: 'readonly', type: 'Vector', group: 'physics', text: 'The point it balances on, in the world. A box has it in the middle; a Hull may not.' },
+      { name: 'resetMass', kind: 'method', type: '() => void', group: 'physics', text: 'Works the mass out again from size and density, after you set `mass` by hand.' },
+      // ---- forces
+      { name: 'applyForce', kind: 'method', type: '(fx, fy, fz) => void', group: 'forces', text: 'A steady push, for as long as you keep calling it. Call it every frame in `update()`. A heavy body speeds up less than a light one.', tryUpdate: 'c.applyForce(4, 0, 0);' },
+      { name: 'applyForceScaled', kind: 'method', type: '(fx, fy, fz) => void', group: 'forces', text: 'Like `applyForce`, multiplied by the mass, so a heavy and a light body speed up the same.', tryUpdate: 'c.applyForceScaled(4, 0, 0);' },
+      { name: 'applyForceAt', kind: 'method', type: '(fx, fy, fz, x, y, z) => void', group: 'forces', text: 'A steady push at a point in the world. Off-centre pushes make it spin. The point can also be a vector: `applyForceAt(fx, fy, fz, point)`.', tryUpdate: 'c.applyForceAt(0, 6, 0, c.x + 0.5, c.y, c.z);' },
+      { name: 'applyImpulse', kind: 'method', type: '(ix, iy, iz) => void', group: 'forces', text: 'An instant kick, once. A jump is `applyImpulse(0, 6, 0)`.', try: 'c.applyImpulse(0, 6, 0);' },
+      { name: 'applyImpulseAt', kind: 'method', type: '(ix, iy, iz, x, y, z) => void', group: 'forces', text: 'An instant kick at a point. Off-centre makes it spin as it flies.', try: 'c.applyImpulseAt(0, 5, 0, c.x + 0.5, c.y, c.z);' },
+      { name: 'applyTorque', kind: 'method', type: '(tx, ty, tz) => void', group: 'forces', text: 'A steady twist about an axis, for as long as you keep calling it.', tryUpdate: 'c.applyTorque(0, 3, 0);' },
+      { name: 'applyAngularImpulse', kind: 'method', type: '(x, y, z) => void', group: 'forces', text: 'An instant spin, the way `applyImpulse` is an instant kick.', try: 'c.applyAngularImpulse(0, 5, 3);' },
+      { name: 'moveTo', kind: 'method', type: '(x, y, z) => void', group: 'forces', text: "For `'kinematic'` solids (a moving platform). It glides to the point during the next physics step, pushing and carrying whatever touches it, then stops. Call it every frame to follow a path. Setting `pos` instead teleports it, and carries nothing. Any other collider throws.", try: "c.collider = 'kinematic';", tryUpdate: 'c.moveTo(Math.sin(frameCount * 0.03) * 3, 1.5, 0);' },
+      // ---- helpers
+      { name: 'lookAt', kind: 'method', type: '(x, y, z) => void', group: 'helpers', text: "Turns it so its front (the -z side) points at a place or another solid." },
+      { name: 'distanceTo', kind: 'method', type: '(x, y, z) => number', group: 'helpers', text: 'How far away a point or solid is, in units.' },
+      { name: 'moveTowards', kind: 'method', type: '(target, tracking?) => void', group: 'helpers', text: 'Moves it a share of the way toward a point or solid (default 0.1 each call).' },
+      { name: 'moveAway', kind: 'method', type: '(target, repel?) => void', group: 'helpers', text: 'The opposite of `moveTowards`.' },
+      // ---- touch
+      { name: 'collides', kind: 'method', type: '(other, callback?) => boolean', group: 'touch', text: 'true on the ONE frame it first bumps a solid or group (a physical touch).' },
+      { name: 'colliding', kind: 'method', type: '(other, callback?) => number', group: 'touch', text: 'How many frames it has been touching, 0 if it is not.' },
+      { name: 'collided', kind: 'method', type: '(other, callback?) => boolean', group: 'touch', text: 'true on the ONE frame a touch ends.' },
+      { name: 'overlaps', kind: 'method', type: '(other, callback?) => boolean', group: 'touch', text: 'true on EVERY frame it is overlapping a solid or group, not just the first. Works with sensors (`collider = \'none\'`) as well as solid bodies, so it is the one to use for zones. `overlapping` counts the frames; `overlapped` is the frame it ends.' },
+      { name: 'overlapping', kind: 'method', type: '(other, callback?) => number', group: 'touch', text: 'How many frames it has been overlapping, 0 if it is not.' },
+      { name: 'overlapped', kind: 'method', type: '(other, callback?) => boolean', group: 'touch', text: 'true on the ONE frame an overlap ends.' },
+      // ---- other
+      { name: 'clone', kind: 'method', type: '() => Solid', group: 'other', text: 'Makes another with the same look and settings. It is made on top of the original, so two solid bodies push apart.' },
+      { name: 'remove', kind: 'method', type: '() => void', group: 'other', text: 'Takes it out of the world: it stops drawing and colliding, and its joints go with it. `delete()` does the same.' },
+      { name: 'delete', kind: 'method', type: '() => void', group: 'other', text: 'Same as `remove()`.' },
+      { name: 'removed', kind: 'readonly', type: 'boolean', group: 'other', text: 'true once it has been removed.' },
+      { name: 'joints', kind: 'readonly', type: 'Joint[]', group: 'other', text: 'Every joint this solid is part of (a copy of the list).' },
+      { name: 'mouse', kind: 'readonly', type: 'SolidMouse', group: 'other', text: 'Asks about the pointer and this solid: `hovering()`, `hovers()`, `hovered()`, `presses()`, `pressing()`, `released()`.' },
+    ],
+  },
+  {
+    object: 'Group', title: 'Group',
+    intro: 'A list of solids that share settings. `new coins.Solid(x, y, z)` makes a solid already in the group. Setting a property on the group sets it on every member now and on every member made later.',
+    members: [
+      { name: 'newSolid', kind: 'method', type: '(x, y, z, size?) => Solid', text: 'Same as `new group.Solid(x, y, z, size)`.' },
+      { name: 'add', kind: 'method', type: '(...solids) => number', text: 'Puts existing solids in the group.' },
+      { name: 'contains', kind: 'method', type: '(solid) => boolean', text: 'Is this solid in the group?' },
+      { name: 'remove', kind: 'method', type: '(solid) => void', text: 'Takes a solid OUT OF THE GROUP. The solid itself stays in the world.' },
+      { name: 'delete', kind: 'method', type: '() => void', text: 'Removes every member from the world.' },
+      { name: 'amount', kind: 'property', type: 'number', text: 'How many members. Setting it makes or removes members to match.' },
+      { name: 'cull', kind: 'method', type: '(margin?, callback?) => number', text: 'Removes members that fell or flew far outside the play area (below y = -50 or more than 200 units out). Returns how many.' },
+      { name: 'applyForce', kind: 'method', type: '(fx, fy, fz) => void', text: 'Pushes every member.' },
+      { name: 'color', kind: 'property', type: 'string', text: 'Cascades to members.' },
+      { name: 'collider', kind: 'property', type: 'Collider', text: 'Cascades to members.' },
+      { name: 'bounciness', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'friction', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'density', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'opacity', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'visible', kind: 'property', type: 'boolean', text: 'Cascades to members.' },
+      { name: 'drag', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'rotationDrag', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'gravityScale', kind: 'property', type: 'number', text: 'Cascades to members.' },
+      { name: 'isSuperFast', kind: 'property', type: 'boolean', text: 'Cascades to members.' },
+      { name: 'maxSpeed', kind: 'property', type: 'number | null', text: 'Cascades to members.' },
+      { name: 'maxSpin', kind: 'property', type: 'number | null', text: 'Cascades to members.' },
+      { name: 'allowSleeping', kind: 'property', type: 'boolean', text: 'Cascades to members.' },
+      { name: 'collisionGroup', kind: 'property', type: 'string | null', text: 'Cascades to members.' },
+      { name: 'collides', kind: 'method', type: '(other, callback?) => boolean', text: 'true if ANY member does. The callback runs once for each member that did.' },
+      { name: 'colliding', kind: 'method', type: '(other, callback?) => number', text: 'The longest touch among the members, in frames.' },
+      { name: 'collided', kind: 'method', type: '(other, callback?) => boolean', text: 'true if any member stopped touching this frame.' },
+      { name: 'overlaps', kind: 'method', type: '(other, callback?) => boolean', text: 'true if any member is overlapping this frame.' },
+      { name: 'overlapping', kind: 'method', type: '(other, callback?) => number', text: 'The longest overlap among the members, in frames.' },
+      { name: 'overlapped', kind: 'method', type: '(other, callback?) => boolean', text: 'true if any member stopped overlapping this frame.' },
+    ],
+  },
+  {
+    object: 'Hull', title: 'Hull',
+    intro: 'The smallest convex shape around some points: a rock, a gem, a wedge. `new Hull(x, y, z, points, collider?)` with at least 4 points, not all on one flat plane. Points are relative to the solid position. A Hull can be dynamic. Its size comes from its points, so `w`, `h` and `d` can be read but not set (use `scale` for the look).',
+    members: [
+      { name: 'points', kind: 'readonly', type: 'number[][]', text: 'The points the hull was made from.' },
+    ],
+  },
+  {
+    object: 'TriangleMesh', title: 'TriangleMesh',
+    intro: '`new TriangleMesh(x, y, z, vertices, triangles, collider?)`: any shape made of triangles (a room, a bowl, terrain). Each triangle is three indexes into `vertices`. It has no mass, so it can never be `dynamic`: it is `static` unless you say `kinematic`.',
+    members: [
+      { name: 'vertices', kind: 'readonly', type: 'number[][]', text: 'The corner points.' },
+      { name: 'triangles', kind: 'readonly', type: 'number[][]', text: 'Which three vertices make each triangle.' },
+    ],
+  },
+  {
+    object: 'HingeJoint', title: 'HingeJoint',
+    intro: '`new HingeJoint(a, b, { anchor, axis, lowerLimit, upperLimit, friction })`. Pins two solids together at a point so they turn about a line (default: up). A door.',
+    members: [
+      { name: 'angle', kind: 'readonly', type: 'number', units: 'degrees', text: 'How far it has turned from where it started.' },
+      { name: 'lowerLimit', kind: 'property', type: 'number | null', units: 'degrees', text: 'The smallest angle it may turn to, -180 to 0. null for no limit.' },
+      { name: 'upperLimit', kind: 'property', type: 'number | null', units: 'degrees', text: 'The largest angle, 0 to 180. null for no limit.' },
+      { name: 'friction', kind: 'property', type: 'number', text: 'How hard it is to turn. 0 swings freely.' },
+      { name: 'remove', kind: 'method', type: '() => void', text: 'Takes the joint away; the two solids carry on free.' },
+    ],
+  },
+  {
+    object: 'BallJoint', title: 'BallJoint',
+    intro: '`new BallJoint(a, b, { anchor })`. Pins two solids together at a point; they swing any way around it, like a chain link.',
+    members: [{ name: 'remove', kind: 'method', type: '() => void', text: 'Takes the joint away.' }],
+  },
+  {
+    object: 'DistanceJoint', title: 'DistanceJoint',
+    intro: '`new DistanceJoint(a, b, { length, rope, spring })`. Keeps two solids a set distance apart: a stick by default, a rope with `rope: true` (it can slacken but never stretch), or a spring with `spring: { hz, damping }` (hz about 1 to 3 is bouncy). `length` defaults to how far apart they are now.',
+    members: [
+      { name: 'length', kind: 'property', type: 'number', units: 'units', text: 'The distance it holds.' },
+      { name: 'distance', kind: 'readonly', type: 'number', units: 'units', text: 'How far apart the two are right now.' },
+      { name: 'remove', kind: 'method', type: '() => void', text: 'Takes the joint away.' },
+    ],
+  },
+  {
+    object: 'SliderJoint', title: 'SliderJoint',
+    intro: '`new SliderJoint(a, b, { axis, lowerLimit, upperLimit })`. Lets the second solid slide along a line on the first, like a drawer. Limits are distances from where it starts: `lowerLimit` 0 or less, `upperLimit` 0 or more.',
+    members: [
+      { name: 'position', kind: 'readonly', type: 'number', units: 'units', text: 'How far it has slid from where it started.' },
+      { name: 'lowerLimit', kind: 'property', type: 'number | null', text: 'How far back it may slide (0 or less).' },
+      { name: 'upperLimit', kind: 'property', type: 'number | null', text: 'How far forward it may slide (0 or more).' },
+      { name: 'remove', kind: 'method', type: '() => void', text: 'Takes the joint away.' },
+    ],
+  },
+  {
+    object: 'GlueJoint', title: 'GlueJoint',
+    intro: '`new GlueJoint(a, b)`. Sticks two solids together where they are, so they move as one piece.',
+    members: [{ name: 'remove', kind: 'method', type: '() => void', text: 'Takes the joint away.' }],
+  },
+  {
+    object: 'world', title: 'world',
+    intro: 'The physics world. Anything about gravity, the whole simulation, and asking questions of the scene.',
+    members: [
+      { name: 'gravity', kind: 'property', type: 'Vector', group: 'world', text: 'Starts at (0, 0, 0): nothing falls until you set `world.gravity.y = -10`. A metre-scale world feels right at about -10.' },
+      { name: 'getSolidAt', kind: 'method', type: '(screenX, screenY) => Solid | undefined', group: 'query', text: 'The solid under a point on the screen (what the mouse is over), or undefined.' },
+      { name: 'rayCast', kind: 'method', type: '(from, to) => RayHit | null', group: 'query', text: 'Fires a line and returns the closest SOLID thing it crosses, or null. Sensors and `collider = \'none\'` solids are looked through. A RayHit has `solid`, `point`, `normal` and `fraction`.' },
+      { name: 'rayCastAll', kind: 'method', type: '(from, to) => RayHit[]', group: 'query', text: 'Every body along the line, nearest first.' },
+      { name: 'explodeAt', kind: 'method', type: '(x, y, z, radius?, magnitude?, falloff?) => void', group: 'query', text: 'A blast: shoves every body inside `radius` away from the point. `falloff` (0 to 1) is how much of the push is left at the edge.' },
+      { name: 'ignoreCollisions', kind: 'method', type: '(a, b?) => void', group: 'groups', text: "`world.ignoreCollisions('bullets', 'player')` makes solids in those two collision groups pass through each other. With one name, members of that group pass through each other. At most 32 group names." },
+      { name: 'restoreCollisions', kind: 'method', type: '(a, b?) => void', group: 'groups', text: 'Puts it back.' },
+      { name: 'solverSteps', kind: 'property', type: 'number', default: 10, group: 'tuning', text: 'More solver steps hold stacks and joints steadier and cost more time.' },
+      { name: 'sleepDelay', kind: 'property', type: 'number', default: 0.5, units: 'seconds', group: 'tuning', text: 'How long a body must rest before it goes to sleep.' },
+      { name: 'sleepSpeed', kind: 'property', type: 'number', default: 0.0005, units: 'units per frame', group: 'tuning', text: 'Slower than this counts as resting.' },
+      { name: 'minBounceSpeed', kind: 'property', type: 'number', default: 0.016666666666666666, units: 'units per frame', group: 'tuning', text: 'A hit slower than this does not bounce. 0 lets every hit bounce, however small.' },
+      { name: 'allowSleeping', kind: 'property', type: 'boolean', default: true, group: 'tuning', text: 'false keeps every body awake.' },
+      { name: 'autoStep', kind: 'property', type: 'boolean', default: true, group: 'tuning', text: 'false hands the physics step to you: call `world.physicsUpdate()` yourself.' },
+      { name: 'physicsUpdate', kind: 'method', type: '() => void', group: 'tuning', text: 'Runs one physics step. Only needed when `autoStep` is false.' },
+      { name: 'joints', kind: 'readonly', type: 'Joint[]', group: 'world', text: 'Every joint in the world (a copy of the list).' },
+    ],
+  },
+  {
+    object: 'camera', title: 'camera',
+    intro: 'What you see through. It starts a few units back and above the origin, looking at it.',
+    members: [
+      { name: 'pos', kind: 'property', type: 'Vector', text: 'Where the camera is.' },
+      { name: 'x', kind: 'property', type: 'number', text: 'Shortcut for `pos.x` (and `y`, `z`).' },
+      { name: 'fov', kind: 'property', type: 'number', default: 60, units: 'degrees', text: 'Field of view. Small numbers zoom in; big ones are wide angle.' },
+      { name: 'lookAt', kind: 'method', type: '(x, y, z) => void', text: 'Points the camera at a place or solid.' },
+      { name: 'follow', kind: 'method', type: '(solid, { distance?, height?, tracking? }) => void', text: 'Trails behind and above a solid, smoothly. `tracking` is the share of the gap closed each frame (default 0.1).' },
+      { name: 'orbit', kind: 'method', type: '(point, { distance?, drag? }) => void', text: 'Circles a point. With `drag: true` the player turns it by dragging with the mouse.' },
+      { name: 'free', kind: 'method', type: '() => void', text: 'Stops `follow` or `orbit` and leaves the camera where it is.' },
+    ],
+  },
+  {
+    object: 'kb', title: 'kb (keyboard)',
+    intro: 'Key names are lowercase: `\'a\'`, `\'space\'`, `\'enter\'`, `\'shift\'`, `\'up\'`, `\'down\'`, `\'left\'`, `\'right\'`.',
+    members: [
+      { name: 'presses', kind: 'method', type: '(key?) => boolean', text: 'true on the ONE frame the key goes down. With no key, any key.' },
+      { name: 'pressing', kind: 'method', type: '(key?) => number', text: 'How many frames the key has been held, 0 if it is not.' },
+      { name: 'released', kind: 'method', type: '(key?) => boolean', text: 'true on the ONE frame the key comes up.' },
+    ],
+  },
+  {
+    object: 'mouse', title: 'mouse',
+    intro: 'Buttons are `\'left\'` (the default), `\'center\'` and `\'right\'`. The browser\'s own right-click menu is switched off over the picture.',
+    members: [
+      { name: 'x', kind: 'property', type: 'number', text: 'Where the pointer is, in CSS pixels from the left of the picture.' },
+      { name: 'y', kind: 'property', type: 'number', text: 'Where the pointer is, in CSS pixels from the top of the picture.' },
+      { name: 'moved', kind: 'property', type: '{ x, y }', text: 'How far the pointer moved this frame.' },
+      { name: 'presses', kind: 'method', type: '(button?) => boolean', text: 'true on the ONE frame the button goes down.' },
+      { name: 'pressing', kind: 'method', type: '(button?) => number', text: 'How many frames the button has been held.' },
+      { name: 'released', kind: 'method', type: '(button?) => boolean', text: 'true on the ONE frame the button comes up.' },
+      { name: 'lock', kind: 'method', type: '() => void', text: 'Pointer lock, for looking around. The frame the docs and the sandbox use does not allow it (it needs `allow-pointer-lock` on the iframe), so on those pages it only prints a warning.' },
+    ],
+  },
+  {
+    object: 'ambientLight', title: 'ambientLight',
+    intro: 'Light that comes from everywhere, so nothing is ever pitch black.',
+    members: [
+      { name: 'color', kind: 'property', type: 'string', default: '#ffffff', text: 'Any CSS colour.' },
+      { name: 'intensity', kind: 'property', type: 'number', default: 0.9, text: 'How bright.' },
+    ],
+  },
+  {
+    object: 'sunLight', title: 'sunLight',
+    intro: 'One light that shines in a single direction, like the sun. It is what gives shapes a bright side and a dark side.',
+    members: [
+      { name: 'color', kind: 'property', type: 'string', default: '#ffffff', text: 'Any CSS colour.' },
+      { name: 'intensity', kind: 'property', type: 'number', default: 2.4, text: 'How bright.' },
+      { name: 'direction', kind: 'property', type: 'Vector', text: 'Which way the light travels, as a vector. `[-0.4, -1, -0.6]` is the default (down, and a little left and forward).' },
+      { name: 'shadows', kind: 'property', type: 'boolean', default: false, text: 'Solids cast shadows. Off by default because it costs graphics time.' },
+    ],
+  },
+  {
+    object: 'PointLight', title: 'PointLight',
+    intro: '`new PointLight(x, y, z, color?, intensity?)`. A bulb: light that spreads in every direction from a point.',
+    members: [
+      { name: 'pos', kind: 'property', type: 'Vector', text: 'Where it is.' },
+      { name: 'color', kind: 'property', type: 'string', text: 'Any CSS colour.' },
+      { name: 'intensity', kind: 'property', type: 'number', text: 'How bright.' },
+      { name: 'remove', kind: 'method', type: '() => void', text: 'Turns it off for good.' },
+    ],
+  },
+  {
+    object: 'SpotLight', title: 'SpotLight',
+    intro: '`new SpotLight(x, y, z, color?, intensity?)`. A torch: light in a cone, aimed with `lookAt`.',
+    members: [
+      { name: 'pos', kind: 'property', type: 'Vector', text: 'Where it is.' },
+      { name: 'color', kind: 'property', type: 'string', text: 'Any CSS colour.' },
+      { name: 'intensity', kind: 'property', type: 'number', text: 'How bright.' },
+      { name: 'angle', kind: 'property', type: 'number', units: 'degrees', text: 'How wide the cone is.' },
+      { name: 'lookAt', kind: 'method', type: '(x, y, z) => void', text: 'Aims it at a point.' },
+      { name: 'remove', kind: 'method', type: '() => void', text: 'Turns it off for good.' },
+    ],
+  },
+];
+
+// Things that are not objects with members: plain global functions and values, checked to exist.
+export const GLOBALS = [
+  { name: 'background', type: '(colour) => void', text: 'The colour of the sky: a CSS colour or a grey 0 to 255.' },
+  { name: 'showPerf', type: '(on?) => void', text: 'Draws frames per second, draw calls and triangle count in a corner. Call it in `setup()`.' },
+  { name: 'random', type: '(a?, b?) => number', text: '`random()` is 0 to 1, `random(5)` is 0 to 5, `random(2, 4)` is 2 to 4.' },
+  { name: 'degrees', type: '(radians) => number', text: 'Converts radians to degrees.' },
+  { name: 'radians', type: '(degrees) => number', text: 'Converts degrees to radians.' },
+  { name: 'createVector', type: '(x?, y?, z?) => Vector', text: 'Makes a vector.' },
+  { name: 'Canvas', type: 'new Canvas(w, h)', text: 'Sets the size of the 3D canvas in CSS pixels. Without it, the canvas fills the frame.' },
+  { name: 'fill', type: '(colour | grey | r, g, b) => void', text: 'The fill colour for the 2D layer in `drawTop()`.' },
+  { name: 'noFill', type: '() => void', text: 'Shapes are outlines only.' },
+  { name: 'stroke', type: '(colour) => void', text: 'The outline colour.' },
+  { name: 'noStroke', type: '() => void', text: 'No outline.' },
+  { name: 'strokeWeight', type: '(pixels) => void', text: 'Outline thickness.' },
+  { name: 'textSize', type: '(pixels) => void', text: 'Height of text. Default 16.' },
+  { name: 'textAlign', type: "(LEFT | CENTER | RIGHT) => void", text: 'Which side of the x you give to `text()` the words sit on.' },
+  { name: 'text', type: '(words, x, y) => void', text: 'Writes words. Numbers work too.' },
+  { name: 'rect', type: '(x, y, w, h) => void', text: 'A rectangle from its top left corner.' },
+  { name: 'circle', type: '(x, y, diameter) => void', text: 'A circle from its middle.' },
+  { name: 'line', type: '(x1, y1, x2, y2) => void', text: 'A line.' },
+];
+
+export const GLOBAL_VALUES = [
+  { name: 'frameCount', type: 'number', text: 'How many physics frames have run (60 a second). It is the same on a 60 Hz and a 144 Hz screen.' },
+  { name: 'deltaTime', type: 'number', units: 'milliseconds', text: 'How long the last drawn frame took.' },
+  { name: 'width', type: 'number', text: 'Width of the picture in CSS pixels.' },
+  { name: 'height', type: 'number', text: 'Height of the picture in CSS pixels.' },
+  { name: 'allSolids', type: 'Group', text: 'A Group holding every solid in the world.' },
+  { name: 'quality', type: "'auto' | 'low' | 'medium' | 'high'", default: 'auto', text: "Assign it: `quality = 'low'`. See the Performance page." },
+];

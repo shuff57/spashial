@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>spaSHial sandbox</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Write a 3D game in JavaScript and run it right here. Real physics, no install.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ffb86c'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='21' font-weight='700' text-anchor='middle' fill='%231d1306'%3Es%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="./site.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  .tools { display: flex; gap: 10px; align-items: center; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-wrap: wrap; }
+  .tools .hint { margin-left: auto; color: var(--muted); font-size: 13px; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(320px, 42%) 1fr; min-height: 0; }
+  .editor { position: relative; display: flex; min-height: 0; border-right: 1px solid var(--border); background: var(--code-bg); }
+  #gutter { flex: none; width: 44px; padding: 14px 8px 14px 0; text-align: right; color: var(--muted); opacity: .7; font: 13px/1.55 var(--mono); overflow: hidden; user-select: none; white-space: pre; }
+  #code { flex: 1; min-width: 0; resize: none; border: 0; background: transparent; color: var(--text); padding: 14px 14px 14px 0; font: 13px/1.55 var(--mono); tab-size: 2; outline: none; white-space: pre; overflow: auto; }
+  .editor:focus-within { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+  .right { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .view { flex: 1; min-height: 0; background: var(--stage); position: relative; }
+  #frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stage); }
+  #log { height: 128px; overflow: auto; background: var(--code-bg); border-top: 1px solid var(--border); padding: 8px 14px; }
+  @media (max-width: 800px) {
+    body { overflow: auto; height: auto; }
+    main { grid-template-columns: 1fr; }
+    .editor { height: 46vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    .view { height: 60vw; min-height: 260px; flex: none; }
+    .tools .hint { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="./">spa<b>SH</b>ial</a>
+  <nav aria-label="Site">
+    <a href="./docs/">Docs</a>
+    <a href="./sandbox.html" aria-current="page">Sandbox</a>
+    <a href="https://github.com/shuff57/spashial">GitHub</a>
+  </nav>
+</header>
+<div class="tools">
+  <button class="btn primary" id="run" title="Run (Ctrl+Enter)">Run</button>
+  <select class="btn" id="examples" aria-label="Load an example sketch"><option value="">Examples</option></select>
+  <button class="btn" id="share" title="Copy a link that holds this sketch">Copy link</button>
+  <button class="btn" id="save" title="Download the sketch as a .js file">Download</button>
+  <span class="hint">Ctrl+Enter runs. Click the picture, then use the keyboard.</span>
+</div>
+<main>
+  <div class="editor">
+    <div id="gutter" aria-hidden="true"></div>
+    <textarea id="code" spellcheck="false" aria-label="Sketch code"></textarea>
+  </div>
+  <div class="right">
+    <div class="view">
+      <!-- an opaque origin: no allow-same-origin, so a sketch cannot reach this page, its storage or cookies -->
+      <iframe id="frame" sandbox="allow-scripts allow-downloads allow-modals" allow="autoplay; fullscreen; gamepad; clipboard-write" title="Sketch preview"></iframe>
+    </div>
+    <div id="log" class="console" aria-live="polite"></div>
+  </div>
+</main>
+<script type="module">
+import { runSketch, toBase64Url, fromBase64Url } from './embed.js';
+
+const $ = (id) => document.getElementById(id);
+const sel = $('examples'), ta = $('code'), frame = $('frame'), log = $('log'), gutter = $('gutter');
+const KEY = 'spashial:sandbox:code';
+const EXAMPLES = (window.EXAMPLES = {});
+let current = null;
+
+function line(cls, text) { const d = document.createElement('div'); d.className = cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; }
+function numbers() {
+  const n = ta.value.split('\n').length;
+  gutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n');
+  gutter.scrollTop = ta.scrollTop;
+}
+function runIt() {
+  log.textContent = '';
+  try { localStorage.setItem(KEY, ta.value); } catch {}
+  current?.stop();
+  current = runSketch(frame, ta.value, {
+    onReady: () => line('ok', 'running'),
+    onLog: (type, text) => line(type === 'error' ? 'error' : type === 'warn' ? 'warn' : '', text),
+    onError: (x) => line('error', `${x.name}: ${x.message}${x.line ? `  (line ${x.line})` : ''}${x.snippet ? `\n    ${x.snippet}` : ''}`),
+  });
+}
+
+async function loadExamples() {
+  const list = await (await fetch('./demos/index.json')).json();
+  await Promise.all(list.map(async (d) => { EXAMPLES[d.title] = await (await fetch(`./demos/${d.file}`)).text(); d.code = EXAMPLES[d.title]; }));
+  for (const d of list) sel.add(new Option(d.title, d.title));
+  return list;
+}
+
+window.examplesReady = (async () => {
+  const list = await loadExamples();
+  const params = new URLSearchParams(location.search);
+  const hash = new URLSearchParams(location.hash.slice(1));
+  let start = null;
+  if (hash.get('code')) { try { start = fromBase64Url(hash.get('code')); } catch { line('warn', 'That link\'s sketch could not be read.'); } }
+  if (start == null && params.get('demo')) start = list.find((d) => d.id === params.get('demo'))?.code ?? null;
+  if (start == null) { try { start = localStorage.getItem(KEY); } catch {} }
+  ta.value = start || list[0].code;
+  numbers();
+  runIt();
+})();
+
+$('run').onclick = runIt;
+sel.onchange = () => { if (sel.value) { ta.value = EXAMPLES[sel.value]; numbers(); runIt(); sel.value = ''; } };
+ta.addEventListener('input', numbers);
+ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; });
+ta.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runIt(); }
+  if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText('  ', s, ta.selectionEnd, 'end'); numbers(); }
+});
+$('share').onclick = async () => {
+  const url = `${location.origin}${location.pathname}#code=${toBase64Url(ta.value)}`;
+  try { await navigator.clipboard.writeText(url); line('ok', 'Link copied. It holds the whole sketch, so anyone can open it.'); }
+  catch { prompt('Copy this link', url); }
+};
+$('save').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ta.value], { type: 'text/javascript' }));
+  a.download = 'sketch.js'; a.click(); URL.revokeObjectURL(a.href);
+};
+</script>
+</body>
+</html>

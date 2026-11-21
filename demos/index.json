@@ -1,0 +1,86 @@
+[
+  {
+    "id": "falling-cubes",
+    "title": "Falling cubes",
+    "blurb": "Turn gravity on and watch three shapes drop onto a floor.",
+    "file": "falling-cubes.js"
+  },
+  {
+    "id": "all-the-shapes",
+    "title": "All the shapes",
+    "blurb": "Cube, sphere, cylinder, capsule, cone and torus, dropped from the same height.",
+    "file": "all-the-shapes.js"
+  },
+  {
+    "id": "tower",
+    "title": "A tower of cubes",
+    "blurb": "Friction holds a stack of cubes up. Press Space to blow it over.",
+    "file": "tower.js",
+    "hint": "Click the picture, then press Space to blow it over."
+  },
+  {
+    "id": "through-the-ring",
+    "title": "Through the ring",
+    "blurb": "A small ball falls through a torus; a big one rests on top of it.",
+    "file": "through-the-ring.js"
+  },
+  {
+    "id": "walk-and-jump",
+    "title": "Walk and jump (WASD + Space)",
+    "blurb": "A player you steer with WASD, a camera that follows, and a jump only from the ground.",
+    "file": "walk-and-jump.js",
+    "hint": "Click the picture, then use W A S D and Space."
+  },
+  {
+    "id": "joints",
+    "title": "Joints (a door, a rope, a drawer)",
+    "blurb": "A hinged door, a rope with a weight and a sliding drawer.",
+    "file": "joints.js",
+    "hint": "Click the picture, then press Space to shove the drawer."
+  },
+  {
+    "id": "platform-and-bullets",
+    "title": "Moving platform and bullets",
+    "blurb": "A kinematic platform that carries what stands on it, and bullets that never tunnel.",
+    "file": "platform-and-bullets.js"
+  },
+  {
+    "id": "touch-verbs",
+    "title": "Touch verbs",
+    "blurb": "A sensor zone that colours every ball inside it.",
+    "file": "touch-verbs.js"
+  },
+  {
+    "id": "rain",
+    "title": "Rain (performance)",
+    "blurb": "Up to 300 falling bodies with the performance panel on.",
+    "file": "rain.js"
+  },
+  {
+    "id": "wrecking-ball",
+    "title": "Wrecking ball",
+    "blurb": "A heavy ball on a rope swings into a wall of cubes, then it all resets.",
+    "file": "wrecking-ball.js"
+  },
+  {
+    "id": "dominoes",
+    "title": "Dominoes",
+    "blurb": "A curved line of dominoes. Tip the first one and watch it travel.",
+    "file": "dominoes.js",
+    "hint": "Click the picture, then press Space."
+  },
+  {
+    "id": "bowling",
+    "title": "Bowling",
+    "blurb": "Ten pins and a heavy ball. Aim, roll and set up again.",
+    "file": "bowling.js",
+    "hint": "Click the picture. Left and right aim, Space rolls, R resets."
+  },
+  {
+    "id": "turntable",
+    "title": "Turntable",
+    "blurb": "A small still life with shadows. Drag to walk the camera around it.",
+    "file": "turntable.js",
+    "hint": "Drag with the mouse over the picture."
+  }
+]

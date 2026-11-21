@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>spaSHial docs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Documentation for spaSHial, a 3D game engine for the web with real physics. Every page has demos you can run and change.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ffb86c'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='21' font-weight='700' text-anchor='middle' fill='%231d1306'%3Es%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../site.css">
+<style>
+  .layout { display: grid; grid-template-columns: 272px minmax(0, 1fr); min-height: calc(100dvh - 60px); }
+  aside { position: sticky; top: 0; align-self: start; height: calc(100dvh - 60px); overflow: auto; padding: 20px 16px 40px 20px; border-right: 1px solid var(--border); background: var(--bg); }
+  .search { width: 100%; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 14px var(--font); }
+  .search::placeholder { color: var(--muted); }
+  aside h2 { margin: 22px 0 6px; font: 700 12px/1 var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  aside ul { list-style: none; margin: 0; padding: 0; }
+  aside a { display: block; padding: 6px 10px; border-radius: var(--radius); color: var(--text); text-decoration: none; font-size: 14.5px; }
+  aside a:hover { background: var(--raised); }
+  aside a[aria-current] { background: var(--raised); color: var(--accent); font-weight: 600; }
+  #none { color: var(--muted); font-size: 14px; padding: 12px 10px; }
+  main { padding: 32px clamp(16px, 4vw, 56px) 80px; min-width: 0; }
+  article { max-width: 920px; }
+  h1 { font: 700 clamp(30px, 4vw, 40px)/1.12 var(--font); letter-spacing: -.02em; margin: 0 0 8px; }
+  .lede { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 62ch; }
+  h2 { font: 700 22px/1.25 var(--font); margin: 40px 0 10px; letter-spacing: -.01em; }
+  h3 { font: 700 18px/1.3 var(--font); margin: 34px 0 6px; }
+  p, li { max-width: 72ch; }
+  article p { margin: 0 0 14px; }
+  article ul { padding-left: 22px; margin: 0 0 18px; }
+  article li { margin: 5px 0; }
+  code { background: var(--raised); padding: 1px 6px; border-radius: 6px; font-size: .88em; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .note { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 12px 16px; margin: 20px 0; max-width: 72ch; }
+  .tablewrap { overflow-x: auto; margin: 0 0 22px; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th { text-align: left; font-weight: 700; padding: 10px 14px; background: var(--surface); color: var(--text); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 14px; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { white-space: nowrap; }
+  td.t { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+  .tryrow td { padding: 0; background: var(--bg); }
+  .tryrow .demo { margin: 0; border: 0; border-radius: 0; }
+
+  /* a live demo */
+  .demo { margin: 22px 0 30px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .demo > header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .demo > header h4 { margin: 0; font: 600 14.5px var(--font); margin-right: auto; }
+  .demo-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .demo textarea { display: block; width: 100%; height: 100%; min-height: 220px; max-height: 520px; resize: vertical; border: 0; border-right: 1px solid var(--border); background: var(--code-bg); color: var(--text); padding: 12px 14px; font: 12.5px/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; outline: none; }
+  .demo textarea:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .out { padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .out .hint { margin: 0; color: var(--muted); font-size: 13px; }
+  .out .console { max-height: 120px; overflow: auto; }
+  .stage .idle .btn { font-size: 15px; padding: 11px 22px; }
+
+  .pager { display: flex; justify-content: space-between; gap: 16px; margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .pager a { text-decoration: none; color: var(--text); padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+  .pager a:hover { background: var(--raised); }
+  .pager small { display: block; color: var(--muted); font-size: 12px; }
+  #toggle { display: none; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    aside { position: fixed; z-index: 20; inset: 60px 0 0 0; height: auto; transform: translateX(-100%); transition: transform .2s ease; }
+    body.nav-open aside { transform: none; }
+    #toggle { display: inline-flex; }
+    .demo-grid { grid-template-columns: minmax(0, 1fr); }
+    .demo textarea { border-right: 0; border-bottom: 1px solid var(--border); min-height: 180px; }
+    .bar nav a.hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <button class="btn small" id="toggle" aria-label="Show the list of pages" aria-expanded="false">Pages</button>
+  <a class="brand" href="../">spa<b>SH</b>ial</a>
+  <nav aria-label="Site">
+    <a href="./" aria-current="page">Docs</a>
+    <a href="../sandbox.html">Sandbox</a>
+    <a class="hide-sm" href="https://github.com/shuff57/spashial">GitHub</a>
+  </nav>
+</header>
+<div class="layout">
+  <aside id="side" aria-label="Pages">
+    <label class="sr-only" for="q">Search the docs</label>
+    <input id="q" class="search" type="search" placeholder="Search the docs" autocomplete="off">
+    <div id="nav"></div>
+    <p id="none" hidden>Nothing matches that. Try a shorter word.</p>
+  </aside>
+  <main id="main" tabindex="-1"><article id="page" aria-live="off"></article></main>
+</div>
+
+<script type="module">
+import { pages, groups, REFERENCE, GLOBALS, GLOBAL_VALUES } from './content/index.mjs';
+import { runSketch } from '../embed.js';
+import { tryCode } from './try-template.mjs';
+
+const $ = (s, r = document) => r.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') n.className = v; else if (k === 'html') n.innerHTML = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : document.createTextNode(k));
+  return n;
+};
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/** `code`, **bold** and [label](#/page) or [label](file) in one line of text. Everything is escaped first. */
+function inline(s) {
+  return String(s).split(/(`[^`]+`)/).map((p, i) => i % 2
+    ? `<code>${esc(p.slice(1, -1))}</code>`
+    : esc(p).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>')).join('');
+}
+const P = (s) => el('p', { html: inline(s) });
+
+// ---------------------------------------------------------------- demos: one runs at a time
+let active = null; // { card, run }
+function stopActive() {
+  if (!active) return;
+  active.run.stop();
+  active.card.querySelector('.stage iframe')?.remove();
+  active.card.querySelector('.idle').hidden = false;
+  active = null;
+}
+async function sketchOf(d) { return d.code ?? (await (await fetch(`../demos/${d.from}.js`)).text()); }
+
+function demoCard(d, key) {
+  const original = { code: d.code ?? '' };
+  const ta = el('textarea', { spellcheck: 'false', 'aria-label': `Code for ${d.title}` });
+  const stage = el('div', { class: 'stage' });
+  const idle = el('div', { class: 'idle' }, el('button', { class: 'btn primary', 'aria-label': `Run ${d.title}`, onclick: () => card.run() }, 'Run'));
+  stage.append(idle);
+  const con = el('div', { class: 'console', 'aria-live': 'polite' });
+  const log = (cls, text) => con.append(el('div', { class: cls }, text));
+  const card = el('figure', { class: 'demo', id: key ? `demo-${key}` : false },
+    el('header', {}, el('h4', {}, d.title),
+      el('button', { class: 'btn small', onclick: () => card.run() }, 'Run'),
+      el('button', { class: 'btn small', onclick: () => { ta.value = original.code; if (active?.card === card) card.run(); } }, 'Reset')),
+    el('div', { class: 'demo-grid' }, ta, el('div', { class: 'out' }, stage, con, d.hint ? el('p', { class: 'hint' }, d.hint) : null)));
+  card.run = () => {
+    stopActive();
+    con.textContent = '';
+    stage.querySelector('iframe')?.remove();
+    const frame = el('iframe', { title: `${d.title}, running` });
+    stage.append(frame);
+    idle.hidden = true;
+    const run = runSketch(frame, ta.value, {
+      onReady: () => log('ok', 'running'),
+      onLog: (type, text) => log(type === 'error' ? 'error' : type === 'warn' ? 'warn' : '', text),
+      onError: (x) => log('error', `${x.name}: ${x.message}${x.line ? `  (line ${x.line})` : ''}${x.snippet ? `\n    ${x.snippet}` : ''}`),
+    });
+    active = { card, run };
+  };
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); card.run(); }
+    if (e.key === 'Tab') { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); }
+  });
+  const ready = sketchOf(d).then((code) => { original.code = code; ta.value = code; });
+  card.ready = ready;
+  return card;
+}
+
+// ---------------------------------------------------------------- the Solid rows with Try it
+const dflt = (r) => (r.default === undefined ? '' : r.default === null ? 'null' : typeof r.default === 'string' ? `'${r.default}'` : String(r.default));
+
+function memberTable(obj, rows, { withTry = false } = {}) {
+  const hasDefault = rows.some((r) => r.default !== undefined);
+  const head = ['Name', 'Type', ...(hasDefault ? ['Default'] : []), 'What it does', ...(withTry ? [''] : [])];
+  const tbody = el('tbody');
+  for (const r of rows) {
+    const units = r.units ? ` (${r.units})` : '';
+    const tr = el('tr', { id: `ref-${obj}.${r.name}` },
+      el('td', { html: `<code>${esc(r.name)}${r.kind === 'method' ? '()' : ''}</code>` }),
+      el('td', { class: 't' }, r.type + units),
+      hasDefault ? el('td', { class: 't' }, dflt(r)) : null,
+      el('td', { html: inline(r.text) }),
+      withTry ? el('td', {}, (r.try || r.tryUpdate) ? el('button', { class: 'btn small', 'aria-label': `Try ${r.name}`, onclick: () => toggleTry(tr, r, head.length) }, 'Try it') : '') : null);
+    tbody.append(tr);
+  }
+  return el('div', { class: 'tablewrap' }, el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', { scope: 'col' }, h)))), tbody));
+}
+function toggleTry(tr, r, span) {
+  const next = tr.nextElementSibling;
+  if (next?.classList.contains('tryrow')) { if (active && next.contains(active.card)) stopActive(); next.remove(); return; }
+  const card = demoCard({ title: `Try ${r.name}`, code: tryCode(r) });
+  const row = el('tr', { class: 'tryrow' }, el('td', { colspan: span }, card));
+  tr.after(row);
+  card.ready.then(() => card.run());
+}
+
+// ---------------------------------------------------------------- pages
+function block(b, pageId) {
+  if (typeof b === 'string') return P(b);
+  if (b.h) return el('h2', {}, b.h);
+  if (b.list) return el('ul', {}, b.list.map((i) => el('li', { html: inline(i) })));
+  if (b.code) return el('pre', {}, el('code', {}, b.code));
+  if (b.note) return el('div', { class: 'note', html: inline(b.note) });
+  if (b.table) return el('div', { class: 'tablewrap' }, el('table', {},
+    el('thead', {}, el('tr', {}, b.table.head.map((h) => el('th', { scope: 'col' }, h)))),
+    el('tbody', {}, b.table.rows.map((r) => el('tr', {}, r.map((c) => el('td', { html: inline(c) })))))));
+  if (b.demo) return demoCard(b.demo, b.demo.id);
+  if (b.physics) {
+    const solid = REFERENCE.find((o) => o.object === 'Solid');
+    return memberTable('Solid', solid.members.filter((m) => b.physics.includes(m.group)), { withTry: true });
+  }
+  if (b.reference) {
+    const out = el('div');
+    for (const o of REFERENCE) {
+      out.append(el('h3', { id: `ref-${o.object}` }, o.title), P(o.intro));
+      const groupsOf = [...new Set(o.members.map((m) => m.group).filter(Boolean))];
+      if (groupsOf.length) for (const g of groupsOf) { out.append(el('h4', { class: 'sr-only' }, g), memberTable(o.object, o.members.filter((m) => m.group === g), { withTry: false })); }
+      else out.append(memberTable(o.object, o.members));
+    }
+    out.append(el('h3', { id: 'ref-globals' }, 'Global functions and values'));
+    out.append(el('div', { class: 'tablewrap' }, el('table', {},
+      el('thead', {}, el('tr', {}, ['Name', 'Type', 'What it does'].map((h) => el('th', { scope: 'col' }, h)))),
+      el('tbody', {}, [...GLOBALS, ...GLOBAL_VALUES].map((g) => el('tr', { id: `ref-global.${g.name}` }, el('td', { html: `<code>${esc(g.name)}</code>` }), el('td', { class: 't' }, g.type + (g.units ? ` (${g.units})` : '')), el('td', { html: inline(g.text) })))))));
+    return out;
+  }
+  return null;
+}
+
+const articleEl = $('#page');
+let currentId = null;
+function show(id, sub) {
+  const i = pages.findIndex((p) => p.id === id);
+  const page = pages[i] ?? pages[0];
+  if (page.id !== currentId) {
+    stopActive();
+    currentId = page.id;
+    articleEl.textContent = '';
+    articleEl.append(el('h1', {}, page.title), el('p', { class: 'lede' }, page.summary));
+    for (const b of page.blocks) articleEl.append(block(b, page.id));
+    const idx = pages.indexOf(page);
+    articleEl.append(el('div', { class: 'pager' },
+      pages[idx - 1] ? el('a', { href: `#/${pages[idx - 1].id}` }, el('small', {}, 'Previous'), pages[idx - 1].title) : el('span'),
+      pages[idx + 1] ? el('a', { href: `#/${pages[idx + 1].id}`, style: 'text-align:right' }, el('small', {}, 'Next'), pages[idx + 1].title) : el('span')));
+    document.title = `${page.title} - spaSHial docs`;
+    for (const a of document.querySelectorAll('#nav a')) { if (a.dataset.id === page.id) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+    // run the first demo of the page, so there is something moving
+    const first = articleEl.querySelector('.demo:not(.tryrow .demo)');
+    if (first && !sub) first.ready.then(() => { if (currentId === page.id && !active) first.run(); });
+  }
+  const target = sub && (document.getElementById(`demo-${sub}`) || document.getElementById(`ref-${sub}`));
+  if (target) { target.scrollIntoView({ block: 'start' }); if (target.run) target.ready.then(() => target.run()); }
+  else if (!sub) { window.scrollTo(0, 0); }
+  document.body.classList.remove('nav-open');
+  $('#toggle').setAttribute('aria-expanded', 'false');
+}
+function route() {
+  const [, id, sub] = decodeURIComponent(location.hash).match(/^#\/([a-z0-9-]+)(?:\/(.+))?$/) ?? [];
+  show(id ?? pages[0].id, sub);
+}
+
+// ---------------------------------------------------------------- the sidebar and search
+function textOf(page) {
+  const out = [page.title, page.summary];
+  for (const b of page.blocks) {
+    if (typeof b === 'string') out.push(b);
+    else { if (b.h) out.push(b.h); if (b.list) out.push(...b.list); if (b.note) out.push(b.note); if (b.table) out.push(...b.table.head, ...b.table.rows.flat()); if (b.demo) out.push(b.demo.title, b.demo.code ?? ''); }
+  }
+  if (page.id === 'reference') for (const o of REFERENCE) out.push(o.title, o.intro, ...o.members.flatMap((m) => [m.name, m.text]));
+  if (page.id === 'physics' || page.id === 'forces') for (const m of REFERENCE[0].members) out.push(m.name, m.text);
+  return out.join(' ').toLowerCase();
+}
+const haystack = new Map(pages.map((p) => [p.id, textOf(p)]));
+function buildNav(filter = '') {
+  const f = filter.trim().toLowerCase();
+  const nav = $('#nav'); nav.textContent = '';
+  let any = false;
+  for (const g of groups) {
+    const items = pages.filter((p) => p.group === g && (!f || haystack.get(p.id).includes(f)));
+    if (!items.length) continue;
+    any = true;
+    nav.append(el('h2', {}, g), el('ul', {}, items.map((p) => el('li', {}, el('a', { href: `#/${p.id}`, 'data-id': p.id, 'aria-current': p.id === currentId ? 'page' : false }, p.title)))));
+  }
+  $('#none').hidden = any;
+}
+$('#q').addEventListener('input', (e) => buildNav(e.target.value));
+$('#toggle').addEventListener('click', () => { const open = document.body.classList.toggle('nav-open'); $('#toggle').setAttribute('aria-expanded', String(open)); });
+buildNav();
+window.addEventListener('hashchange', route);
+route();
+window.__docs = { pages, get active() { return active; } }; // for the tests
+</script>
+</body>
+</html>

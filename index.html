@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>spaSHial: 3D games with real physics, in the browser</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="spaSHial is a small JavaScript engine for 3D games on the web. Real physics, a handful of globals, nothing to install.">
+<meta property="og:title" content="spaSHial">
+<meta property="og:description" content="Make 3D games with real physics. A few lines of JavaScript, and things fall, bounce and swing.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ffb86c'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='21' font-weight='700' text-anchor='middle' fill='%231d1306'%3Es%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="./site.css">
+<style>
+  .wrap { width: min(1240px, 100% - 48px); margin-inline: auto; }
+  section { padding: 88px 0; }
+  h1 { font: 700 clamp(38px, 5.2vw, 62px)/1.04 var(--font); letter-spacing: -.035em; margin: 0 0 20px; }
+  h2 { font: 700 clamp(26px, 3vw, 36px)/1.15 var(--font); letter-spacing: -.025em; margin: 0 0 14px; }
+  h3 { font: 700 17px/1.3 var(--font); margin: 0 0 8px; }
+  p { margin: 0 0 14px; }
+  .lede { font-size: 19px; color: var(--muted); max-width: 44ch; margin-bottom: 28px; }
+  .copy { color: var(--muted); max-width: 58ch; }
+  code { background: var(--raised); padding: 1px 6px; border-radius: 6px; font-size: .9em; }
+  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; overflow: auto; font-size: 13.5px; line-height: 1.6; }
+  pre code { background: none; padding: 0; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  /* hero: copy on the left, the real engine running on the right */
+  .hero { padding: 56px 0 72px; }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
+  .stagebox { position: relative; }
+  .stagebox .stage { box-shadow: var(--shadow); }
+  .stagebox .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; font-size: 14px; }
+  .linklike { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+  /* the demo picker: a list beside one stage */
+  .gallery { background: var(--surface); border-block: 1px solid var(--border); }
+  .picker { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 32px; margin-top: 32px; align-items: start; }
+  .picker ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .picker button.item { width: 100%; text-align: left; padding: 10px 14px; border-radius: var(--radius); border: 1px solid transparent; background: none; color: var(--text); font: 600 15px var(--font); cursor: pointer; }
+  .picker button.item:hover { background: var(--raised); }
+  .picker button.item[aria-pressed="true"] { background: var(--raised); border-color: var(--border); color: var(--accent); }
+  .picker .info { margin-top: 14px; }
+  .picker .info h3 { margin-bottom: 4px; }
+  .picker .info .hint { color: var(--muted); font-size: 14px; margin: 6px 0 12px; }
+
+  /* code beside what it does */
+  .short .wrap { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 72px); align-items: start; }
+  .parts { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 16px; }
+  .parts b { display: block; margin-bottom: 2px; }
+
+  /* an index of the docs, straight from the docs' own page list */
+  .box .wrap { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: clamp(28px, 5vw, 72px); }
+  .index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 40px; }
+  .index h3 { color: var(--muted); font: 700 12px/1 var(--font); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 12px; }
+  .index ul { list-style: none; margin: 0; padding: 0; }
+  .index a { display: block; padding: 4px 0; color: var(--text); text-decoration: none; }
+  .index a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+  .embed .wrap { max-width: 920px; }
+  .limits ul { margin: 18px 0 0; padding-left: 20px; columns: 2; column-gap: 40px; max-width: 760px; }
+  .limits li { margin: 4px 0; break-inside: avoid; }
+
+  footer { border-top: 1px solid var(--border); padding: 36px 0 56px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 32px; justify-content: space-between; }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--text); }
+
+  @media (max-width: 900px) {
+    section { padding: 60px 0; }
+    .hero .wrap, .short .wrap, .box .wrap, .picker { grid-template-columns: minmax(0, 1fr); }
+    .picker ul { display: flex; flex-wrap: wrap; gap: 6px; }
+    .picker button.item { width: auto; border-color: var(--border); }
+    .index { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    .limits ul { columns: 1; }
+    .bar nav a.hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="./">spa<b>SH</b>ial</a>
+  <nav aria-label="Site">
+    <a href="./docs/">Docs</a>
+    <a href="./sandbox.html">Sandbox</a>
+    <a class="hide-sm" href="https://github.com/shuff57/spashial">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero" aria-labelledby="top">
+    <div class="wrap">
+      <div>
+        <h1 id="top">Make 3D games with real physics.</h1>
+        <p class="lede">A small JavaScript engine for the web. A few lines of code, and things fall, bounce and swing.</p>
+        <div class="actions">
+          <a class="btn primary" href="./sandbox.html">Open the sandbox</a>
+          <a class="btn" href="./docs/">Read the docs</a>
+        </div>
+      </div>
+      <div class="stagebox">
+        <div class="stage" id="heroStage">
+          <div class="idle" id="heroIdle"><button class="btn primary" id="heroPlay">Play the scene</button></div>
+        </div>
+        <div class="row">
+          <span class="console" id="heroNote">This is the engine running, not a video.</span>
+          <a href="./sandbox.html?demo=wrecking-ball">Open this scene in the sandbox</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gallery" aria-labelledby="demos">
+    <div class="wrap">
+      <h2 id="demos">Pick a demo and run it</h2>
+      <p class="copy">Every one is a short sketch. Open it in the sandbox to read the code and change it.</p>
+      <div class="picker">
+        <ul id="list" aria-label="Demos"></ul>
+        <div>
+          <div class="stage" id="galleryStage">
+            <div class="idle"><button class="btn primary" id="galleryPlay">Run</button></div>
+          </div>
+          <div class="info">
+            <h3 id="gTitle"></h3>
+            <p class="copy" id="gBlurb" style="margin:0"></p>
+            <p class="hint" id="gHint"></p>
+            <div class="actions"><a class="btn small" id="gOpen" href="./sandbox.html">Open in the sandbox</a></div>
+            <div class="console" id="gLog" aria-live="polite" style="margin-top:10px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="short" aria-labelledby="short">
+    <div class="wrap">
+      <div>
+        <h2 id="short">Short enough to read in one go</h2>
+        <p class="copy">There is no loop to write and nothing to import. You write the functions the engine calls, and use a few globals.</p>
+        <ul class="parts">
+          <li><b><code>setup()</code></b><span class="copy">Runs once. Make your starting scene here.</span></li>
+          <li><b><code>update()</code></b><span class="copy">Runs 60 times a second. Read the keyboard and the mouse, push things around.</span></li>
+          <li><b><code>Cube</code>, <code>Sphere</code>, <code>Floor</code> and friends</b><span class="copy">Every one is a <code>Solid</code>: it can be seen, it can fall, and it can be touched.</span></li>
+        </ul>
+      </div>
+      <div>
+        <pre id="sample"><code>function setup() {
+  world.gravity.y = -10;          // gravity starts off. Turn it on.
+  new Floor();
+  const box = new Cube(0, 4, 0);
+  box.color = 'tomato';
+  box.bounciness = 0.6;
+}
+
+function update() {
+  // Space blows everything away from the middle
+  if (kb.presses('space')) world.explodeAt(0, 0, 0, 6, 8);
+}</code></pre>
+        <div class="actions" style="margin-top:14px"><a class="btn" id="sampleOpen" href="./sandbox.html">Run this in the sandbox</a></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="box" style="background: var(--surface); border-block: 1px solid var(--border)" aria-labelledby="box">
+    <div class="wrap">
+      <div>
+        <h2 id="box">What is in the box</h2>
+        <p class="copy">Six shapes, your own hulls and meshes, joints, forces, ray casts, cameras, lights and a flat layer for scores. Each page of the docs has demos you can run.</p>
+      </div>
+      <div class="index" id="index"></div>
+    </div>
+  </section>
+
+  <section class="embed" aria-labelledby="embed">
+    <div class="wrap">
+      <h2 id="embed">Put it in your own page</h2>
+      <p class="copy">spaSHial runs in a sandboxed iframe, so the sketch cannot touch your page. Hand it the code with one message. It is plain static files: GitHub Pages, Cloudflare Pages, or any folder you can serve.</p>
+      <pre><code>&lt;iframe id="frame" sandbox="allow-scripts allow-downloads allow-modals"
+        src="https://shuff57.github.io/spashial/runner.html"&gt;&lt;/iframe&gt;
+&lt;script&gt;
+  addEventListener('message', (e) =&gt; {
+    if (e.data?.source === 'preview-storage-request')
+      frame.contentWindow.postMessage({ source: 'preview-storage-init', code: mySketch }, '*');
+  });
+&lt;/script&gt;</code></pre>
+      <p style="margin-top:14px"><a href="./docs/#/embedding">The whole embedding guide</a></p>
+    </div>
+  </section>
+
+  <section class="limits" aria-labelledby="limits" style="padding-top:0">
+    <div class="wrap">
+      <h2 id="limits">What it cannot do yet</h2>
+      <p class="copy">spaSHial is young. These are not built, and the docs say so in one place.</p>
+      <ul>
+        <li>Textures and sounds</li>
+        <li>Models from files (glTF)</li>
+        <li>Online multiplayer</li>
+        <li>Saving a game's data</li>
+        <li>Vehicles and ragdolls</li>
+        <li>Terrain from a height map</li>
+      </ul>
+      <p style="margin-top:18px"><a href="./docs/#/planned">The planned list, with what to do instead</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>spaSHial is MIT licensed. It uses three.js and Jolt Physics, both MIT.</span>
+    <span><a href="https://github.com/shuff57/spashial">Source on GitHub</a> &nbsp; <a href="https://github.com/shuff57/moshion">moSHion, the 2D sibling</a> &nbsp; <a href="https://github.com/shuff57/shCode">shCode, the course it grew out of</a></span>
+  </div>
+</footer>
+
+<script type="module">
+import { runSketch, toBase64Url } from './embed.js';
+import { pages } from './docs/content/index.mjs';
+
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let active = null; // only one sketch runs at a time: each is a WebGL context and a physics world
+
+function stopActive() {
+  if (!active) return;
+  active.run.stop();
+  active.stage.querySelector('iframe')?.remove();
+  active.stage.querySelector('.idle').hidden = false;
+  active.onStop?.();
+  active = null;
+}
+function play(stage, code, { log, onStop, label } = {}) {
+  stopActive();
+  stage.querySelector('iframe')?.remove();
+  const frame = document.createElement('iframe');
+  frame.title = label || 'Running sketch';
+  stage.append(frame);
+  stage.querySelector('.idle').hidden = true;
+  if (log) log.textContent = '';
+  const line = (cls, text) => { if (!log) return; const d = document.createElement('div'); d.className = cls; d.textContent = text; log.append(d); };
+  const run = runSketch(frame, code, {
+    onLog: (type, text) => line(type === 'error' ? 'error' : type === 'warn' ? 'warn' : '', text),
+    onError: (x) => line('error', `${x.name}: ${x.message}${x.line ? ` (line ${x.line})` : ''}`),
+  });
+  active = { run, stage, onStop };
+}
+const text = (name) => fetch(`./demos/${name}.js`).then((r) => r.text());
+
+// ---- the hero: the wrecking ball, started by itself unless the visitor asks for less motion
+const hero = $('heroStage');
+let heroCode = null;
+async function playHero() { heroCode ??= await text('wrecking-ball'); play(hero, heroCode, { label: 'A wrecking ball swinging into a wall of cubes', onStop: () => { $('heroNote').textContent = 'Paused to run your demo below.'; } }); $('heroNote').textContent = 'This is the engine running, not a video.'; }
+$('heroPlay').onclick = playHero;
+if (reduced) $('heroNote').textContent = 'Motion is off because your device asks for less. Press play to run it.'; else playHero();
+
+// ---- the picker
+const list = await (await fetch('./demos/index.json')).json();
+const ul = $('list');
+let chosen = null;
+function choose(d) {
+  chosen = d;
+  for (const b of ul.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.id === d.id));
+  $('gTitle').textContent = d.title; $('gBlurb').textContent = d.blurb; $('gHint').textContent = d.hint ?? '';
+  $('gOpen').href = `./sandbox.html?demo=${d.id}`;
+  $('gLog').textContent = '';
+}
+for (const d of list) {
+  const li = document.createElement('li');
+  const b = Object.assign(document.createElement('button'), { className: 'item', type: 'button', textContent: d.title });
+  b.dataset.id = d.id; b.setAttribute('aria-pressed', 'false');
+  b.onclick = async () => { choose(d); play($('galleryStage'), await text(d.id), { log: $('gLog'), label: `${d.title}, running` }); };
+  li.append(b); ul.append(li);
+}
+choose(list[0]);
+$('galleryPlay').onclick = async () => play($('galleryStage'), await text(chosen.id), { log: $('gLog'), label: `${chosen.title}, running` });
+
+// ---- the code sample opens in the sandbox with its code in the link
+$('sampleOpen').href = `./sandbox.html#code=${toBase64Url($('sample').textContent)}`;
+
+// ---- the docs index, from the docs' own list of pages, so it never goes stale
+const wanted = ['Objects', 'Physics', 'Interaction', 'World'];
+for (const g of wanted) {
+  const box = document.createElement('div');
+  const h = document.createElement('h3'); h.textContent = g; box.append(h);
+  const items = document.createElement('ul');
+  for (const p of pages.filter((p) => p.group === g)) {
+    const li = document.createElement('li');
+    const a = Object.assign(document.createElement('a'), { href: `./docs/#/${p.id}`, textContent: p.title });
+    li.append(a); items.append(li);
+  }
+  box.append(items); $('index').append(box);
+}
+</script>
+</body>
+</html>
