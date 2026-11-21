@@ -7,65 +7,63 @@
 <meta name="description" content="spaSHial is a small JavaScript engine for 3D games on the web. Real physics, a handful of globals, nothing to install.">
 <meta property="og:title" content="spaSHial">
 <meta property="og:description" content="Make 3D games with real physics. A few lines of JavaScript, and things fall, bounce and swing.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ffb86c'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='21' font-weight='700' text-anchor='middle' fill='%231d1306'%3Es%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235baafd'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='21' font-weight='700' text-anchor='middle' fill='%230a1726'%3Es%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="./site.css">
 <style>
-  .wrap { width: min(1240px, 100% - 48px); margin-inline: auto; }
-  section { padding: 88px 0; }
-  h1 { font: 700 clamp(38px, 5.2vw, 62px)/1.04 var(--font); letter-spacing: -.035em; margin: 0 0 20px; }
-  h2 { font: 700 clamp(26px, 3vw, 36px)/1.15 var(--font); letter-spacing: -.025em; margin: 0 0 14px; }
-  h3 { font: 700 17px/1.3 var(--font); margin: 0 0 8px; }
+  /* The landing page uses the moSHion docs' look (see site.css): mono headings, sans reading text,
+     a "// kicker" above each section, a blue primary button, purple for "this one". */
+  .wrap { width: min(1180px, 100% - 48px); margin-inline: auto; }
+  section { padding: 72px 0; }
+  h1 { font: 700 clamp(30px, 4.6vw, 48px)/1.12 var(--head); letter-spacing: -.03em; margin: 0 0 18px; }
+  h2 { font: 700 clamp(22px, 2.6vw, 28px)/1.25 var(--head); letter-spacing: -.02em; margin: 0 0 12px; }
+  h3 { font: 700 16px/1.3 var(--head); margin: 0 0 6px; }
   p { margin: 0 0 14px; }
-  .lede { font-size: 19px; color: var(--muted); max-width: 44ch; margin-bottom: 28px; }
-  .copy { color: var(--muted); max-width: 58ch; }
-  code { background: var(--raised); padding: 1px 6px; border-radius: 6px; font-size: .9em; }
-  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; overflow: auto; font-size: 13.5px; line-height: 1.6; }
-  pre code { background: none; padding: 0; }
-  .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+  .lede { font-size: 17px; color: var(--meta); max-width: 46ch; margin-bottom: 26px; }
+  .copy { color: var(--meta); max-width: 60ch; }
+  pre { margin: 0; padding: 16px 18px; overflow: auto; font-size: 13.5px; line-height: 1.6; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 
   /* hero: copy on the left, the real engine running on the right */
-  .hero { padding: 56px 0 72px; }
-  .hero .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
-  .stagebox { position: relative; }
-  .stagebox .stage { box-shadow: var(--shadow); }
-  .stagebox .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; font-size: 14px; }
-  .linklike { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .hero { padding: 48px 0 64px; }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 5vw, 64px); align-items: center; }
+  .stagebox { padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .stagebox .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; font-size: 13px; }
 
   /* the demo picker: a list beside one stage */
-  .gallery { background: var(--surface); border-block: 1px solid var(--border); }
-  .picker { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 32px; margin-top: 32px; align-items: start; }
+  .gallery { background: var(--card); border-block: 1px solid var(--border); }
+  .picker { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; margin-top: 28px; align-items: start; }
   .picker ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-  .picker button.item { width: 100%; text-align: left; padding: 10px 14px; border-radius: var(--radius); border: 1px solid transparent; background: none; color: var(--text); font: 600 15px var(--font); cursor: pointer; }
-  .picker button.item:hover { background: var(--raised); }
-  .picker button.item[aria-pressed="true"] { background: var(--raised); border-color: var(--border); color: var(--accent); }
+  .picker button.item { width: 100%; text-align: left; padding: 6px 10px; border-radius: var(--radius); border: 1px solid transparent; background: none; color: var(--cyan); font: 13px/1.35 var(--head); cursor: pointer; }
+  .picker button.item:hover { background: var(--muted-bg); }
+  .picker button.item[aria-pressed="true"] { background: var(--purple-tint); border-color: var(--border); color: var(--text); font-weight: 700; }
   .picker .info { margin-top: 14px; }
-  .picker .info h3 { margin-bottom: 4px; }
-  .picker .info .hint { color: var(--muted); font-size: 14px; margin: 6px 0 12px; }
+  .picker .info .hint { color: var(--meta); font-size: 14px; margin: 6px 0 12px; }
 
   /* code beside what it does */
-  .short .wrap { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 72px); align-items: start; }
+  .short .wrap { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 64px); align-items: start; }
   .parts { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 16px; }
-  .parts b { display: block; margin-bottom: 2px; }
+  .parts b { display: block; margin-bottom: 2px; font-family: var(--head); }
 
   /* an index of the docs, straight from the docs' own page list */
-  .box .wrap { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: clamp(28px, 5vw, 72px); }
-  .index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 40px; }
-  .index h3 { color: var(--muted); font: 700 12px/1 var(--font); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 12px; }
+  .box { background: var(--card); border-block: 1px solid var(--border); }
+  .box .wrap { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: clamp(28px, 5vw, 64px); }
+  .index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 40px; }
+  .index h3 { font: 700 12px/1.2 var(--head); letter-spacing: .12em; text-transform: uppercase; color: var(--meta); margin-bottom: 10px; }
   .index ul { list-style: none; margin: 0; padding: 0; }
-  .index a { display: block; padding: 4px 0; color: var(--text); text-decoration: none; }
-  .index a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .index a { display: block; padding: 3px 0; color: var(--cyan); font: 13.5px/1.4 var(--head); }
+  .index a:hover { color: var(--text); }
 
   .embed .wrap { max-width: 920px; }
   .limits ul { margin: 18px 0 0; padding-left: 20px; columns: 2; column-gap: 40px; max-width: 760px; }
   .limits li { margin: 4px 0; break-inside: avoid; }
 
-  footer { border-top: 1px solid var(--border); padding: 36px 0 56px; color: var(--muted); font-size: 14px; }
-  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 32px; justify-content: space-between; }
-  footer a { color: var(--muted); }
+  footer { border-top: 1px solid var(--border); padding: 28px 0 48px; color: var(--meta); font: 13px/1.6 var(--head); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: space-between; }
+  footer a { color: var(--meta); }
   footer a:hover { color: var(--text); }
 
   @media (max-width: 900px) {
-    section { padding: 60px 0; }
+    section { padding: 52px 0; }
     .hero .wrap, .short .wrap, .box .wrap, .picker { grid-template-columns: minmax(0, 1fr); }
     .picker ul { display: flex; flex-wrap: wrap; gap: 6px; }
     .picker button.item { width: auto; border-color: var(--border); }
@@ -89,6 +87,7 @@
   <section class="hero" aria-labelledby="top">
     <div class="wrap">
       <div>
+        <p class="kicker">3D games, real physics, in the browser</p>
         <h1 id="top">Make 3D games with real physics.</h1>
         <p class="lede">A small JavaScript engine for the web. A few lines of code, and things fall, bounce and swing.</p>
         <div class="actions">
@@ -110,6 +109,7 @@
 
   <section class="gallery" aria-labelledby="demos">
     <div class="wrap">
+      <p class="kicker">demos</p>
       <h2 id="demos">Pick a demo and run it</h2>
       <p class="copy">Every one is a short sketch. Open it in the sandbox to read the code and change it.</p>
       <div class="picker">
@@ -134,6 +134,7 @@
   <section class="short" aria-labelledby="short">
     <div class="wrap">
       <div>
+        <p class="kicker">the whole idea</p>
         <h2 id="short">Short enough to read in one go</h2>
         <p class="copy">There is no loop to write and nothing to import. You write the functions the engine calls, and use a few globals.</p>
         <ul class="parts">
@@ -160,9 +161,10 @@ function update() {
     </div>
   </section>
 
-  <section class="box" style="background: var(--surface); border-block: 1px solid var(--border)" aria-labelledby="box">
+  <section class="box" aria-labelledby="box">
     <div class="wrap">
       <div>
+        <p class="kicker">docs &amp; sandbox</p>
         <h2 id="box">What is in the box</h2>
         <p class="copy">Six shapes, your own hulls and meshes, textures, glTF models, joints, forces, ray casts, cameras, lights, sound, saving, a level built from text, and online play between two tabs. Each page of the docs has demos you can run.</p>
       </div>
@@ -172,6 +174,7 @@ function update() {
 
   <section class="embed" aria-labelledby="embed">
     <div class="wrap">
+      <p class="kicker">embedding</p>
       <h2 id="embed">Put it in your own page</h2>
       <p class="copy">spaSHial runs in a sandboxed iframe, so the sketch cannot touch your page. Hand it the code with one message. It is plain static files: GitHub Pages, Cloudflare Pages, or any folder you can serve.</p>
       <pre><code>&lt;iframe id="frame" sandbox="allow-scripts allow-downloads allow-modals"
@@ -188,6 +191,7 @@ function update() {
 
   <section class="limits" aria-labelledby="limits" style="padding-top:0">
     <div class="wrap">
+      <p class="kicker">honest limits</p>
       <h2 id="limits">What it cannot do yet</h2>
       <p class="copy">spaSHial is young. These are not built, and the docs say so in one place.</p>
       <ul>
