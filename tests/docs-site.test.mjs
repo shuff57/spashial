@@ -8,9 +8,16 @@ const t = reporter('the landing page, the docs site and the sandbox');
 const env = await start();
 const runnerFrames = (page) => page.frames().filter((f) => f.url().includes('runner.html'));
 const frameCount = (f) => f.evaluate(() => window.frameCount).catch(() => -1);
+// Playwright reports a frame as about:blank until it has navigated, so poll for the runner rather than
+// reading it the moment the iframe element exists (that is racy on a slow machine or a slow network).
+async function runnerFrame(page, timeout = 90000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) { const f = runnerFrames(page)[0]; if (f) return f; await page.waitForTimeout(100); }
+  throw new Error('the runner frame never appeared');
+}
 async function running(page, timeout = 90000) {
   await page.waitForFunction(() => document.querySelector('iframe') !== null, null, { timeout });
-  const f = runnerFrames(page)[0];
+  const f = await runnerFrame(page, timeout);
   await f.waitForFunction(() => window.frameCount >= 5, null, { timeout });
   return f;
 }
@@ -69,7 +76,7 @@ try {
     // Try it on a reference row
     await page.getByRole('button', { name: 'Try drag' }).click();
     await page.waitForFunction(() => document.querySelectorAll('.tryrow iframe').length === 1, null, { timeout: 60000 });
-    const f = runnerFrames(page)[0]; await f.waitForFunction(() => window.frameCount >= 5, null, { timeout: 60000 });
+    const f = await runnerFrame(page, 60000); await f.waitForFunction(() => window.frameCount >= 5, null, { timeout: 60000 });
     t.check('Try it opens a running demo under the row, and the sketch has that row\'s code', (await f.evaluate(() => c.drag)) === 2);
     await page.getByRole('button', { name: 'Try drag' }).click();
     t.check('pressing Try it again closes it and stops the sketch', (await page.locator('.tryrow').count()) === 0 && runnerFrames(page).length <= 1 && (await page.locator('iframe').count()) === 0);
