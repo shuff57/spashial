@@ -8,11 +8,11 @@ guessing.
 | | |
 | --- | --- |
 | Source | shCode, branch `spaSHial`, `public/spashial/` |
-| Commit | `580fe72e` ("online play (online, multiplayer, 3D shared bodies) with a no-server two-tab host and the 3D live protocol") |
+| Commit | `54af5e58` ("five rounds of Opus + GPT Sol review, all regression-tested"; the first copy was `580fe72e`) |
 | Copied unchanged | `spashial.js`, `physics.js`, `textures.js`, `sound.js`, `online.js`, `online-local-host.js`; `tests/physics.test.mjs`, `tests/sound.test.mjs` and `tests/online.test.mjs` (only import paths, first comment lines and, in the online test, two skips differ) |
 | Copied with changes | `runner.html` (see below) |
-| Rewritten for this repository | `sandbox.html` (the examples moved out into `demos/`, and the page keeps saved values), the typings (`docs/spashial.d.ts`: the source spec with what is not built removed, comments made standalone, and the 2D drawing calls added) |
-| Engine tests in the source repo | 147 physics tests, 57 sound tests, 94 online tests and 167 browser checks (the port here runs 175: two per example, and there are 17 examples here). This repository ports all four (`tests/physics.test.mjs`, `tests/sound.test.mjs`, `tests/online.test.mjs`, `tests/browser.test.mjs`). Two online tests compare the code with shCode's own files (moSHion's `extras.js`, `lib/room-icons.ts`); they are skipped here. |
+| Rewritten for this repository | `sandbox.html` (the examples moved out into `demos/`, and the page keeps saved values), the typings (`docs/spashial.d.ts`: the source spec with comments made standalone; since `54af5e58` the source declares the 2D drawing calls itself) |
+| Engine tests in the source repo | 250 physics tests, 57 sound tests, 94 online tests, 1 types check and 218 browser checks (the port here runs 226: two per example, and there are 17 examples here). This repository ports all five (`tests/physics.test.mjs`, `tests/sound.test.mjs`, `tests/online.test.mjs`, `tests/types.test.mjs` with `tests/types-probe.ts`, `tests/browser.test.mjs`). Two online tests compare the code with shCode's own files (moSHion's `extras.js`, `lib/room-icons.ts`); they are skipped here. |
 
 ## The changes to `runner.html`
 
@@ -26,7 +26,7 @@ host  -> frame  { source: 'preview-storage-init', code: '<the sketch>', data: { 
 frame -> host   { source: 'preview-storage', op: 'set' | 'remove' | 'clear', key, value }   (every change)
 ```
 
-`code` and `data` are both optional in the answer. If the host does not answer within 400 ms the frame
+`code` and `data` are both optional in the answer. The saved values are copied onto an object with no prototype, so a saved name such as `__proto__` is just a name (`54af5e58` made the source runner do the same; `embed.js`'s `localStore` does it on the host side and also refuses names over 200 characters and values over 120 KB). If the host does not answer within 400 ms the frame
 falls back to `?code=` (waiting a quarter of a second for saved values). The frame has no localStorage of
 its own, so the host keeps what the sketch saves: `embed.js` has `localStore(key)` for that, and the
 sandbox, the docs (one store per demo) and the landing page all use it.
@@ -51,10 +51,10 @@ and `-unshare` down), so a host written for shCode's classroom rooms serves a sk
    `runner.html` changes if `runner.html` changed in the source.
 2. If `scripts/build-spashial-vendor.mjs` gained files, add them to `scripts/build-vendor.mjs` and run
    `npm run vendor`.
-3. Edit `docs/spashial.d.ts` to match the source spec, leaving out anything the engine does not do yet.
+3. Bring the typings in with a three-way merge, not by hand: `git merge-file docs/spashial.d.ts <old source spec> <new source spec>` (the old one is the spec at the commit in the table above). Resolve each conflict to the new source's declarations with this repository's standalone wording, then `npm run typecheck`.
 4. Add or change the rows in `docs/content/reference-data.mjs`. See [docs/README.md](docs/README.md).
 5. Move any new example out of the source `sandbox.html` into `demos/` and `demos/index.json`.
-6. Port any new tests, then run `npm test`. `tests/docs.test.mjs` names the file that is out of step.
+6. Port any new tests (the physics and sound tests the same way, as a three-way merge against the old source test; the Python browser driver by hand into `tests/browser.test.mjs`), then run `npm test`. `tests/docs.test.mjs` names the file that is out of step.
 7. Update the commit in the table above.
 
 ## The libraries

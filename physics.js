@@ -43,7 +43,7 @@ export const DEFAULT_MAX_SPIN = 0.25 * Math.PI * 60; // rad/s, Jolt's own limit
 // scripts/spashial-bench/torus.mjs: about 2 cm of error at 16, about 6x a sphere's cost).
 export const TORUS_SEGMENTS = 16;
 
-const L_STATIC = 0, L_MOVING = 1, L_SENSOR = 2, L_QUERY = 3;
+const L_STATIC = 0, L_MOVING = 1, L_SENSOR = 2, L_QUERY = 3, L_PICK = 4; // L_QUERY: rays look through sensors; L_PICK: the mouse sees them too
 const KEY = 67108864; // 2^26: pair key = low id * KEY + high id
 
 /** Volume in m^3 for the default mass (density 1 = 1 kg per m^3). */
@@ -102,19 +102,21 @@ function checkPoints(name, pts, min) {
 export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   // ---- the Jolt system: four object layers, two broad-phase layers -------------
   const settings = new J.JoltSettings();
-  const pairs = new J.ObjectLayerPairFilterTable(4);
+  const pairs = new J.ObjectLayerPairFilterTable(5);
   pairs.EnableCollision(L_STATIC, L_MOVING);
   pairs.EnableCollision(L_MOVING, L_MOVING);
   pairs.EnableCollision(L_SENSOR, L_MOVING);
   pairs.EnableCollision(L_SENSOR, L_STATIC);
+  pairs.EnableCollision(L_SENSOR, L_SENSOR); // two 'none' solids see each other
   pairs.EnableCollision(L_QUERY, L_STATIC); // rays see solid things only:
   pairs.EnableCollision(L_QUERY, L_MOVING); // never a sensor
-  const bpi = new J.BroadPhaseLayerInterfaceTable(4, 2);
+  pairs.EnableCollision(L_PICK, L_STATIC); pairs.EnableCollision(L_PICK, L_MOVING); pairs.EnableCollision(L_PICK, L_SENSOR);
+  const bpi = new J.BroadPhaseLayerInterfaceTable(5, 2);
   bpi.MapObjectToBroadPhaseLayer(L_STATIC, new J.BroadPhaseLayer(0));
-  for (const l of [L_MOVING, L_SENSOR, L_QUERY]) bpi.MapObjectToBroadPhaseLayer(l, new J.BroadPhaseLayer(1));
+  for (const l of [L_MOVING, L_SENSOR, L_QUERY, L_PICK]) bpi.MapObjectToBroadPhaseLayer(l, new J.BroadPhaseLayer(1));
   settings.mObjectLayerPairFilter = pairs;
   settings.mBroadPhaseLayerInterface = bpi;
-  settings.mObjectVsBroadPhaseLayerFilter = new J.ObjectVsBroadPhaseLayerFilterTable(bpi, 2, pairs, 4);
+  settings.mObjectVsBroadPhaseLayerFilter = new J.ObjectVsBroadPhaseLayerFilterTable(bpi, 2, pairs, 5);
   const jolt = new J.JoltInterface(settings);
   J.destroy(settings);
   const system = jolt.GetPhysicsSystem();
@@ -138,6 +140,7 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     return i;
   }
   const groupFilter = new J.GroupFilterJS();
+  groupFilter.AddRef(); // Jolt counts references to it: without ours, destroying the LAST body in a group (a resize destroys and re-makes it) deletes the filter while we still use it
   groupFilter.CanCollide = (p1, p2) => !ignored.has(pairKey(
     J.wrapPointer(p1, J.CollisionGroup).GetSubGroupID(), J.wrapPointer(p2, J.CollisionGroup).GetSubGroupID()));
   const groupOf = (name) => (name == null ? new J.CollisionGroup() : new J.CollisionGroup(groupFilter, 0, groupIndex(name)));
@@ -149,9 +152,27 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   // ray query filters and a reusable collector
   const rayBp = new J.DefaultBroadPhaseLayerFilter(jolt.GetObjectVsBroadPhaseLayerFilter(), L_QUERY);
   const rayObj = new J.DefaultObjectLayerFilter(jolt.GetObjectLayerPairFilter(), L_QUERY);
+  const pickBp = new J.DefaultBroadPhaseLayerFilter(jolt.GetObjectVsBroadPhaseLayerFilter(), L_PICK);
+  const pickObj = new J.DefaultObjectLayerFilter(jolt.GetObjectLayerPairFilter(), L_PICK);
   const rayBody = new J.BodyFilter();
   const rayShape = new J.ShapeFilter();
   const rayCfg = new J.RayCastSettings();
+  // A ray that STARTS inside a convex shape must not hit that shape at fraction 0: "am I on the ground?"
+  // from a player's own centre would otherwise always hit the player (the spec's own example did).
+  rayCfg.set_mTreatConvexAsSolid(false);
+  const rayIgnore = new J.IgnoreMultipleBodiesFilter();
+  /** The body filter for one ray: everything, or everything but these records (a ray can ignore the shooter). */
+  function filterFor(ignore) {
+    const list = ignore == null ? [] : Array.isArray(ignore) ? ignore : [ignore];
+    const live = list.filter((r) => r && r.alive && r.body);
+    if (!live.length) return rayBody;
+    rayIgnore.Clear();
+    for (const r of live) rayIgnore.IgnoreBody(r.bodyId);
+    return rayIgnore;
+  }
+  // wakes sleepers in a box: for what rests on a body that moves or goes away
+  const wakeBp = new J.DefaultBroadPhaseLayerFilter(jolt.GetObjectVsBroadPhaseLayerFilter(), L_MOVING);
+  const wakeObj = new J.DefaultObjectLayerFilter(jolt.GetObjectLayerPairFilter(), L_MOVING);
   const closest = new J.CastRayClosestHitCollisionCollector();
 
   // ---- bookkeeping ---------------------------------------------------------------
@@ -167,30 +188,56 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   let seen = new Map();
   let touching = new Map();
   let endedPairs = new Map();
-  const note = (p1, p2) => {
+  // The first frame of a physical contact also records where and how hard (read in OnContactAdded, before the
+  // solver changes the velocities): the point, the normal pointing from body 1 to body 2, and the closing speed
+  // along it in m/s. A sensor contact has none.
+  // linear + angular x (point - centre of mass). Not BodyInterface.GetPointVelocity: this runs INSIDE Jolt's contact
+  // callback, where the locking body interface waits for a lock the callback's own thread holds (it hung).
+  function pointVelocity(body, pt) {
+    const lin = v3(body.GetLinearVelocity()), ang = v3(body.GetAngularVelocity()), com = v3(body.GetCenterOfMassPosition());
+    const r = sub3(pt, com);
+    return add3(lin, cross3(ang, r));
+  }
+  function contactHit(a, b, manifoldPtr) {
+    // Jolt hands back a Vec3 BY VALUE through one shared temporary: a second call overwrites the first, so each
+    // result is copied into plain numbers before the next call (reading two velocities in a row gave the same one twice)
+    const m = J.wrapPointer(manifoldPtr, J.ContactManifold), n = v3(m.get_mWorldSpaceNormal());
+    const p1 = v3(m.GetWorldSpaceContactPointOn1(0)), p2 = v3(m.GetWorldSpaceContactPointOn2(0)); // copied out one at a time
+    const pt = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2]; // halfway between the two surfaces: the same whichever body was made first
+    const va = pointVelocity(a.body, pt), vb = pointVelocity(b.body, pt); // the speed of each body AT the contact: a spinning bar counts
+    return { first: a, n, point: pt, speed: (va[0] - vb[0]) * n[0] + (va[1] - vb[1]) * n[1] + (va[2] - vb[2]) * n[2] };
+  }
+  const note = (p1, p2, manifoldPtr) => {
     const a = byPtr.get(p1), b = byPtr.get(p2);
     if (!a || !b) return;
     const lo = a.id < b.id ? a : b, hi = lo === a ? b : a;
     const k = lo.id * KEY + hi.id;
-    if (!seen.has(k)) seen.set(k, { a: lo, b: hi, sensor: a.def.collider === 'none' || b.def.collider === 'none' });
+    if (seen.has(k)) return;
+    const sensor = a.def.collider === 'none' || b.def.collider === 'none';
+    const was = touching.get(k);
+    seen.set(k, { a: lo, b: hi, sensor, hit: !sensor && manifoldPtr && (!was || was.sensor) ? contactHit(a, b, manifoldPtr) : null });
   };
   const listener = new J.ContactListenerJS();
   listener.OnContactValidate = () => J.ValidateResult_AcceptAllContactsForThisBodyPair;
-  listener.OnContactAdded = (p1, p2) => note(p1, p2);
+  listener.OnContactAdded = (p1, p2, manifold) => note(p1, p2, manifold);
   listener.OnContactPersisted = (p1, p2) => note(p1, p2);
   listener.OnContactRemoved = () => {};
   system.SetContactListener(listener);
 
+  /** The impact, with the normal pointing from `rec` toward the other body (the manifold's is from its body 1). */
+  const asSeenFrom = (hit, rec) => (hit ? { point: hit.point, speed: hit.speed, normal: hit.first === rec ? hit.n : hit.n.map((v) => -v) } : null);
   function reconcile() {
     const next = new Map();
     for (const [k, c] of seen) {
       const prev = touching.get(k);
-      next.set(k, { a: c.a, b: c.b, sensor: c.sensor, frames: prev ? prev.frames + 1 : 1, began: !prev });
+      const same = prev && prev.sensor === c.sensor; // an overlap that turns into a collision (or back) is a new contact
+      next.set(k, { a: c.a, b: c.b, sensor: c.sensor, frames: same ? prev.frames + 1 : 1, began: !same, hit: same && !c.sensor ? prev.hit : c.hit }); // kept while the SAME physical contact lasts; a sensor/solid change starts afresh
     }
     const ended = new Map();
     for (const [k, p] of touching) {
       if (seen.has(k)) continue;
-      const bothAsleep = p.a.alive && p.b.alive && !p.a.body.IsActive() && !p.b.body.IsActive();
+      const bothAsleep = p.a.alive && p.b.alive && p.a.body && p.b.body && !p.a.body.IsActive() && !p.b.body.IsActive()
+        && (p.a.def.collider !== 'static' || p.b.def.collider !== 'static'); // two static bodies are not 'asleep': a pair that was resting and had one turned static ends
       if (bothAsleep) next.set(k, { ...p, frames: p.frames + 1, began: false });
       else ended.set(k, p);
     }
@@ -200,75 +247,90 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   }
 
   // ---- building a body ---------------------------------------------------------------
-  function makeShape(def) {
+  // Jolt objects are reference counted by hand. A shape made from settings is held by the settings AND by the
+  // result Create() hands back (measured: two references before any body has it). Both must be destroyed once
+  // the body has the shape, result first, or removing the body leaves the shape alive for ever (a hull or a
+  // torus kept 3 references). `own(x)` records a temporary to destroy after the body exists, and hands it back.
+  function makeShape(def, own) {
     const { shape, w, h, d } = def;
     const r = w / 2;
+    const V3 = (x, y, z) => own(new J.Vec3(x, y, z));
     switch (shape) {
       case 'hull': {
-        const s = new J.ConvexHullShapeSettings();
-        for (const p of def.points) { const v = new J.Vec3(p[0], p[1], p[2]); s.mPoints.push_back(v); J.destroy(v); }
-        const res = s.Create();
+        const s = own(new J.ConvexHullShapeSettings());
+        const pts = s.mPoints;
+        for (const p of def.points) pts.push_back(V3(p[0], p[1], p[2]));
+        const res = own(s.Create());
         if (!res.IsValid()) throw new Error('hull: ' + res.GetError().c_str() + ' (give at least 4 points that are not all on one flat plane)');
         return res.Get();
       }
       case 'triangles': {
-        const s = new J.MeshShapeSettings();
-        for (const p of def.vertices) { const v = new J.Float3(p[0], p[1], p[2]); s.mTriangleVertices.push_back(v); J.destroy(v); }
+        const s = own(new J.MeshShapeSettings());
+        for (const p of def.vertices) s.mTriangleVertices.push_back(own(new J.Float3(p[0], p[1], p[2])));
         // Jolt only collides with and rays against a triangle's FRONT face (corners counter-clockwise
         // as seen), so a shape wound the other way looks solid (it is drawn double-sided) and lets
         // everything through, and a beginner cannot see the winding. Each triangle goes in both ways
         // round, so winding never matters. Costs twice the triangles.
         for (const t of def.triangles) {
-          for (const order of [[t[0], t[1], t[2]], [t[0], t[2], t[1]]]) {
-            const tri = new J.IndexedTriangle(order[0], order[1], order[2], 0); s.mIndexedTriangles.push_back(tri); J.destroy(tri);
-          }
+          for (const order of [[t[0], t[1], t[2]], [t[0], t[2], t[1]]]) s.mIndexedTriangles.push_back(own(new J.IndexedTriangle(order[0], order[1], order[2], 0)));
         }
         s.Sanitize();
-        const res = s.Create();
+        const res = own(s.Create());
         if (!res.IsValid()) throw new Error('triangle mesh: ' + res.GetError().c_str());
         return res.Get();
       }
-      case 'box': return new J.BoxShape(new J.Vec3(w / 2, h / 2, d / 2), Math.min(0.05, w / 4, h / 4, d / 4), null);
+      case 'box': return new J.BoxShape(V3(w / 2, h / 2, d / 2), Math.min(0.05, w / 4, h / 4, d / 4), null);
       case 'sphere': return new J.SphereShape(r);
       case 'cylinder': return new J.CylinderShape(h / 2, r, Math.min(0.05, r / 2, h / 4));
       case 'capsule': return new J.CapsuleShape(Math.max(h - w, 0) / 2, r);
       case 'cone': { // a tapered cylinder with a point on top; it needs a convex radius of 0
-        const s = new J.TaperedCylinderShapeSettings(h / 2, 0, r, 0);
-        const res = s.Create();
+        const s = own(new J.TaperedCylinderShapeSettings(h / 2, 0, r, 0));
+        const res = own(s.Create());
         if (!res.IsValid()) throw new Error('cone: ' + res.GetError().c_str());
         return res.Get();
       }
       case 'torus': {
         const tube = h / 2, ring = (w - h) / 2;
-        const cs = new J.StaticCompoundShapeSettings();
+        const cs = own(new J.StaticCompoundShapeSettings());
         const half = ring * Math.sin(Math.PI / TORUS_SEGMENTS); // half a chord: the capsule's straight part
         for (let i = 0; i < TORUS_SEGMENTS; i++) {
           const t = (i / TORUS_SEGMENTS) * 2 * Math.PI;
           const q = qmul(qy(-t), qx(Math.PI / 2)); // lay a Y-axis capsule along the ring's tangent
-          cs.AddShapeShape(new J.Vec3(ring * Math.cos(t), 0, ring * Math.sin(t)), new J.Quat(q[0], q[1], q[2], q[3]), new J.CapsuleShape(half, tube), 0);
+          cs.AddShapeShape(V3(ring * Math.cos(t), 0, ring * Math.sin(t)), own(new J.Quat(q[0], q[1], q[2], q[3])), new J.CapsuleShape(half, tube), 0);
         }
-        const res = cs.Create();
+        const res = own(cs.Create());
         if (!res.IsValid()) throw new Error('torus: ' + res.GetError().c_str());
         return res.Get();
       }
       default: throw new Error(`unknown shape '${shape}'`);
     }
   }
+  /** The shape and what to destroy once a body holds it. Throws (leaving nothing behind) if Jolt cannot make it. */
+  function prepareShape(def) {
+    const temps = [];
+    try { return { shape: makeShape(def, (o) => { temps.push(o); return o; }), temps }; }
+    catch (e) { freeTemps(temps); throw e; }
+  }
+  const freeTemps = (temps) => { for (const o of temps.reverse()) J.destroy(o); temps.length = 0; };
 
-  function allowedDofs(lock) {
-    if (!lock) return J.EAllowedDOFs_All;
-    const l = lock === true ? { x: true, y: true, z: true } : lock;
-    let f = J.EAllowedDOFs_TranslationX | J.EAllowedDOFs_TranslationY | J.EAllowedDOFs_TranslationZ;
-    if (!l.x) f |= J.EAllowedDOFs_RotationX;
-    if (!l.y) f |= J.EAllowedDOFs_RotationY;
-    if (!l.z) f |= J.EAllowedDOFs_RotationZ;
+  function allowedDofs(lockRotation, lockPosition) {
+    if (!lockRotation && !lockPosition) return J.EAllowedDOFs_All;
+    const axes = (v) => (v === true ? { x: true, y: true, z: true } : v || {});
+    const r = axes(lockRotation), t = axes(lockPosition);
+    let f = 0;
+    if (!t.x) f |= J.EAllowedDOFs_TranslationX;
+    if (!t.y) f |= J.EAllowedDOFs_TranslationY;
+    if (!t.z) f |= J.EAllowedDOFs_TranslationZ;
+    if (!r.x) f |= J.EAllowedDOFs_RotationX;
+    if (!r.y) f |= J.EAllowedDOFs_RotationY;
+    if (!r.z) f |= J.EAllowedDOFs_RotationZ;
     return f;
   }
 
-  function build(rec, pose) {
+  function build(rec, pose, made = prepareShape(rec.def)) {
     const d = rec.def;
     const collider = d.collider;
-    const shape = makeShape(d);
+    const { shape, temps } = made;
     const moving = collider !== 'static';
     const motion = collider === 'dynamic' ? J.EMotionType_Dynamic : collider === 'static' ? J.EMotionType_Static : J.EMotionType_Kinematic;
     const layer = collider === 'static' ? L_STATIC : collider === 'none' ? L_SENSOR : L_MOVING;
@@ -285,10 +347,11 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     cs.set_mMaxLinearVelocity(d.maxSpeed ?? DEFAULT_MAX_SPEED);
     cs.set_mMaxAngularVelocity(d.maxSpin ?? DEFAULT_MAX_SPIN);
     if (d.superFast) cs.set_mMotionQuality(J.EMotionQuality_LinearCast);
-    const cg = groupOf(d.group); cs.set_mCollisionGroup(cg); J.destroy(cg);
-    if (collider === 'none') { cs.set_mIsSensor(true); cs.set_mCollideKinematicVsNonDynamic(true); }
+    const cg = groupOf(d.group); cs.set_mCollisionGroup(cg); J.destroy(cg); // (a group name Jolt cannot take throws in setGroup, never here)
+    if (collider === 'none') cs.set_mIsSensor(true);
+    if (collider === 'none' || collider === 'kinematic') cs.set_mCollideKinematicVsNonDynamic(true); // so a glider's touch verbs see static walls and other gliders (no response: only reported)
     if (collider === 'dynamic') {
-      cs.set_mAllowedDOFs(allowedDofs(d.lockRotation));
+      cs.set_mAllowedDOFs(allowedDofs(d.lockRotation, d.lockPosition));
       const mp = new J.MassProperties();
       const volume = d.shape === 'hull' ? shape.GetVolume() : volumeOf(d.shape, d.w, d.h, d.d);
       mp.set_mMass(Math.max(d.mass ?? d.density * volume, 1e-4));
@@ -298,6 +361,7 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     }
     const body = bi.CreateBody(cs);
     J.destroy(cs); J.destroy(pos); J.destroy(rot);
+    freeTemps(temps); // the body holds the shape now
     rec.body = body;
     rec.bodyId = body.GetID();
     rec.key = rec.bodyId.GetIndexAndSequenceNumber();
@@ -323,7 +387,21 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   }
   function withVec(a, fn) { const v = new J.Vec3(a[0], a[1], a[2]); try { return fn(v); } finally { J.destroy(v); } }
   function withRVec(a, fn) { const v = new J.RVec3(a[0], a[1], a[2]); try { return fn(v); } finally { J.destroy(v); } }
+  /** A resting body that is touched by a change to ITSELF (friction, collision group) must notice: a static one wakes what rests on it. */
+  const wakeFor = (rec) => { wakeAround(rec); if (rec.def.collider !== 'static') bi.ActivateBody(rec.bodyId); }; // whatever sleeps on it too (a platform's riders, the box on top of a stack)
   const wakeAll = () => { for (const rec of all) if (rec.def.collider !== 'static') bi.ActivateBody(rec.bodyId); };
+
+  /** Sleepers do not notice that what they rest on has gone: wake everything in (and just around) the body's
+   *  box BEFORE it is removed, rebuilt or moved (a box on a removed platform used to hang in the air). */
+  function wakeAround(rec) {
+    if (!rec.body || rec.def.collider === 'none') return;
+    const b = rec.body.GetWorldSpaceBounds(), c = v3(b.GetCenter()), e = v3(b.GetExtent()), pad = 0.1; // copied out one at a time: they share a temporary
+    const lo = new J.Vec3(c[0] - e[0] - pad, c[1] - e[1] - pad, c[2] - e[2] - pad);
+    const hi = new J.Vec3(c[0] + e[0] + pad, c[1] + e[1] + pad, c[2] + e[2] + pad);
+    const box = new J.AABox(lo, hi);
+    bi.ActivateBodiesInAABox(box, wakeBp, wakeObj);
+    J.destroy(box); J.destroy(lo); J.destroy(hi);
+  }
 
   /** Reject what Jolt cannot build, in words, BEFORE anything is torn down; fills a hull's or
    *  triangle mesh's size from its points. */
@@ -344,7 +422,7 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   }
 
   // kinematic bodies moved with moveTo: stopped again after the step they glide in
-  const glide = new Set();
+  const glide = new Map(); // record -> the spin it had before moveTo (a glide aims at a position, so the spin is put back after the step)
 
   // ---- joints ---------------------------------------------------------------------------
   // A joint remembers where it holds in each body's own terms, so it can be put back after a
@@ -353,51 +431,57 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
   const wakeJoint = (j) => { for (const r of [j.a, j.b]) if (r.def.collider !== 'static') bi.ActivateBody(r.bodyId); };
   function dropConstraint(j) { if (j.constraint) { system.RemoveConstraint(j.constraint); j.constraint = null; } }
   function buildJoint(j) {
-    const pa = pose(j.a), s = j.spec;
-    const anchor = add3(pa.pos, qrot(pa.quat, j.local.anchor));
-    const axis = qrot(pa.quat, j.local.axis);
-    const R = (v) => new J.RVec3(v[0], v[1], v[2]), V = (v) => new J.Vec3(v[0], v[1], v[2]);
+    // Every joint remembers the frame it was made in on EACH body (its own anchor, axes and normal, in that body's own
+    // space). A body rebuilt for a new size or mass is joined again from those frames, so the pair is held exactly as
+    // before: a hinge keeps its zero, a stretched ball or glue joint is still pulled back, a limit tightened past where a
+    // door has swung still pulls it round. (Re-joining from where the bodies happen to be forgot all of that.)
+    const pa = pose(j.a), pb = pose(j.b), s = j.spec, la = j.local, lb = j.local.b;
+    const at = (p, l) => add3(p.pos, qrot(p.quat, l.anchor));
+    const temps = [];
+    const R = (v) => { const o = new J.RVec3(v[0], v[1], v[2]); temps.push(o); return o; }, V = (v) => { const o = new J.Vec3(v[0], v[1], v[2]); temps.push(o); return o; };
     let st;
     switch (j.kind) {
       case 'hinge': {
         st = new J.HingeConstraintSettings();
         st.set_mSpace(J.EConstraintSpace_WorldSpace);
-        st.set_mPoint1(R(anchor)); st.set_mPoint2(R(anchor));
-        const n = perpendicular(axis);
-        st.set_mHingeAxis1(V(axis)); st.set_mHingeAxis2(V(axis));
-        st.set_mNormalAxis1(V(n)); st.set_mNormalAxis2(V(n));
-        if (s.lower != null) st.set_mLimitsMin(s.lower);
-        if (s.upper != null) st.set_mLimitsMax(s.upper);
+        st.set_mPoint1(R(at(pa, la))); st.set_mPoint2(R(at(pb, lb)));
+        st.set_mHingeAxis1(V(qrot(pa.quat, la.axis))); st.set_mHingeAxis2(V(qrot(pb.quat, lb.axis)));
+        st.set_mNormalAxis1(V(qrot(pa.quat, la.normal))); st.set_mNormalAxis2(V(qrot(pb.quat, lb.normal)));
+        if (s.lower != null) st.set_mLimitsMin(Math.max(-Math.PI, Math.min(0, s.lower)));
+        if (s.upper != null) st.set_mLimitsMax(Math.min(Math.PI, Math.max(0, s.upper)));
         st.set_mMaxFrictionTorque(s.friction ?? 0);
         break;
       }
       case 'ball': {
         st = new J.PointConstraintSettings();
         st.set_mSpace(J.EConstraintSpace_WorldSpace);
-        st.set_mPoint1(R(anchor)); st.set_mPoint2(R(anchor));
+        st.set_mPoint1(R(at(pa, la))); st.set_mPoint2(R(at(pb, lb)));
         break;
       }
       case 'glue': {
         st = new J.FixedConstraintSettings();
         st.set_mSpace(J.EConstraintSpace_WorldSpace);
-        st.set_mAutoDetectPoint(true);
+        st.set_mAutoDetectPoint(false);
+        st.set_mPoint1(R(at(pa, la))); st.set_mPoint2(R(at(pb, lb)));
+        st.set_mAxisX1(V(qrot(pa.quat, la.axis))); st.set_mAxisY1(V(qrot(pa.quat, la.normal)));
+        st.set_mAxisX2(V(qrot(pb.quat, lb.axis))); st.set_mAxisY2(V(qrot(pb.quat, lb.normal)));
         break;
       }
       case 'slider': {
         st = new J.SliderConstraintSettings();
         st.set_mSpace(J.EConstraintSpace_WorldSpace);
-        st.set_mAutoDetectPoint(true);
-        const n = perpendicular(axis);
-        st.set_mSliderAxis1(V(axis)); st.set_mSliderAxis2(V(axis));
-        st.set_mNormalAxis1(V(n)); st.set_mNormalAxis2(V(n));
-        if (s.lower != null) st.set_mLimitsMin(s.lower);
-        if (s.upper != null) st.set_mLimitsMax(s.upper);
+        st.set_mAutoDetectPoint(false);
+        st.set_mPoint1(R(at(pa, la))); st.set_mPoint2(R(at(pb, lb)));
+        st.set_mSliderAxis1(V(qrot(pa.quat, la.axis))); st.set_mSliderAxis2(V(qrot(pb.quat, lb.axis)));
+        st.set_mNormalAxis1(V(qrot(pa.quat, la.normal))); st.set_mNormalAxis2(V(qrot(pb.quat, lb.normal)));
+        if (s.lower != null) st.set_mLimitsMin(Math.min(0, s.lower));
+        if (s.upper != null) st.set_mLimitsMax(Math.max(0, s.upper));
         break;
       }
       case 'distance': {
         st = new J.DistanceConstraintSettings();
         st.set_mSpace(J.EConstraintSpace_WorldSpace);
-        st.set_mPoint1(R(pa.pos)); st.set_mPoint2(R(pose(j.b).pos));
+        st.set_mPoint1(R(pa.pos)); st.set_mPoint2(R(pb.pos));
         st.set_mMinDistance(s.min); st.set_mMaxDistance(s.max);
         if (s.spring) { const ss = st.get_mLimitsSpringSettings(); ss.set_mFrequency(s.spring.hz); ss.set_mDamping(s.spring.damping); }
         break;
@@ -406,6 +490,7 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     j.constraint = st.Create(j.a.body, j.b.body);
     system.AddConstraint(j.constraint);
     J.destroy(st);
+    for (const o of temps) J.destroy(o);
   }
 
   const world = {
@@ -417,7 +502,7 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
       const d = {
         shape: def.shape, w: def.w ?? 1, h: def.h ?? 1, d: def.d ?? 1, collider: def.collider,
         friction: def.friction ?? 0, bounciness: def.bounciness ?? 0, density: def.density ?? 1,
-        mass: def.mass ?? null, lockRotation: def.lockRotation ?? false,
+        mass: def.mass ?? null, lockRotation: def.lockRotation ?? false, lockPosition: def.lockPosition ?? false,
         drag: def.drag ?? 0.05, rotationDrag: def.rotationDrag ?? 0.05, gravityScale: def.gravityScale ?? 1,
         superFast: !!def.superFast, maxSpeed: def.maxSpeed ?? null, maxSpin: def.maxSpin ?? null,
         allowSleeping: def.allowSleeping ?? true, group: def.group ?? null,
@@ -426,12 +511,15 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
       const rec = { id: nextId++, alive: true, userData: def.userData, joints: new Set(), def: d };
       build(rec, { pos: def.pos ?? [0, 0, 0], quat: def.quat ?? [0, 0, 0, 1] });
       all.add(rec);
+      if (d.collider === 'static' || d.collider === 'kinematic') wakeAround(rec); // a wall built through a sleeper must push it
       if (def.vel) world.setVelocity(rec, def.vel);
       if (def.angVel) world.setAngularVelocity(rec, def.angVel);
       return rec;
     },
     removeBody(rec) {
       if (!rec.alive) return;
+      wakeAround(rec);
+      rec.last = { pose: pose(rec), vel: world.getVelocity(rec), ang: world.getAngularVelocity(rec), com: world.centerOfMass(rec) }; // what a removed record still answers
       for (const j of [...rec.joints]) world.removeJoint(j);
       glide.delete(rec);
       unbuild(rec);
@@ -442,19 +530,39 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
      *  Joints are taken off for the swap and put back where they were. */
     rebuild(rec, patch) {
       const next = { ...rec.def, ...patch };
-      checkDef(next); // also fills in a hull's or triangle mesh's size from its points
+      checkDef(next); // also fills in a hull's or mesh's size from its points
+      const made = prepareShape(next); // throws here if Jolt cannot make it: nothing has been torn down yet
+      const before = { ...rec.def };
+      wakeAround(rec); // it may be smaller or gone from where it was: what rests on it must notice
       const p = pose(rec), vel = world.getVelocity(rec), ang = world.getAngularVelocity(rec);
+      const queued = before.collider === 'dynamic' ? { f: v3(rec.body.GetAccumulatedForce()), t: v3(rec.body.GetAccumulatedTorque()) } : null; // a push applied this frame and not yet stepped
       const js = [...rec.joints];
       for (const j of js) dropConstraint(j);
       unbuild(rec);
-      Object.assign(rec.def, patch, { w: next.w, h: next.h, d: next.d });
-      build(rec, p);
+      try {
+        Object.assign(rec.def, patch, { w: next.w, h: next.h, d: next.d });
+        build(rec, p, made);
+      } catch (e) { // never leave a live Solid without a body: put the old one back
+        freeTemps(made.temps);
+        Object.assign(rec.def, before);
+        build(rec, p);
+        for (const j of js) buildJoint(j);
+        throw e;
+      }
       for (const j of js) buildJoint(j);
+      // a body that stops being kinematic keeps the speed it had (a platform that drops when stepped on keeps moving), but the
+      // glide bookkeeping goes: the step must not zero a dynamic body's velocity
+      if (rec.def.collider !== 'kinematic' && rec.def.collider !== 'none') glide.delete(rec);
       world.setVelocity(rec, vel);
       world.setAngularVelocity(rec, ang);
+      if (queued && rec.def.collider === 'dynamic') { // copy each out before the next call: they share a temporary
+        if (queued.f.some((v) => v)) world.addForce(rec, queued.f);
+        if (queued.t.some((v) => v)) world.addTorque(rec, queued.t);
+      }
+      wakeAround(rec); // it may have grown into something asleep
     },
     /** Live material changes: no rebuild, so a sketch may set these every frame. */
-    setFriction(rec, f) { rec.def.friction = f; bi.SetFriction(rec.bodyId, f); },
+    setFriction(rec, f) { const changed = rec.def.friction !== f; rec.def.friction = f; bi.SetFriction(rec.bodyId, f); if (changed) wakeFor(rec); }, // only a CHANGE wakes (a sketch may set it every frame); a box asleep on an ice-ed ramp must start to slide
     setBounciness(rec, r) { rec.def.bounciness = r; bi.SetRestitution(rec.bodyId, r); },
     /** Slows it down like air does; per second. Static bodies have nothing to slow. */
     setDrag(rec, v) { rec.def.drag = v; if (rec.def.collider !== 'static') rec.body.GetMotionProperties().SetLinearDamping(v); },
@@ -469,11 +577,14 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     /** Speed limits in m/s and rad/s; null lifts a limit back to Jolt's own. */
     setMaxSpeed(rec, v) { rec.def.maxSpeed = v; if (rec.def.collider !== 'static') bi.SetMaxLinearVelocity(rec.bodyId, v ?? DEFAULT_MAX_SPEED); },
     setMaxSpin(rec, v) { rec.def.maxSpin = v; if (rec.def.collider !== 'static') bi.SetMaxAngularVelocity(rec.bodyId, v ?? DEFAULT_MAX_SPIN); },
-    setAllowSleeping(rec, on) { rec.def.allowSleeping = !!on; rec.body.SetAllowSleeping(!!on); if (!on && rec.def.collider !== 'static') bi.ActivateBody(rec.bodyId); },
+    setAllowSleeping(rec, on) { rec.def.allowSleeping = !!on; if (rec.def.collider === 'static') return; /* a static body has no motion properties to write */ rec.body.SetAllowSleeping(!!on); if (!on && rec.def.collider !== 'static') bi.ActivateBody(rec.bodyId); },
     /** Which named collision group it is in (null = none). */
     setGroup(rec, name) {
+      const cg = groupOf(name ?? null); // throws for a 33rd name: the body keeps the group it had
+      const changed = rec.def.group !== (name ?? null);
       rec.def.group = name ?? null;
-      const cg = groupOf(rec.def.group); bi.SetCollisionGroup(rec.bodyId, cg); J.destroy(cg);
+      bi.SetCollisionGroup(rec.bodyId, cg); J.destroy(cg);
+      if (changed) wakeFor(rec); // a sleeper that now passes through what it rests on must fall
     },
     /** Bodies in these two groups pass through each other. One name: members of that group
      *  pass through each other. */
@@ -487,10 +598,15 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
       if (!on) for (const rec of all) if (rec.def.collider === 'dynamic') bi.ActivateBody(rec.bodyId);
     },
     getPose: pose,
-    setPose(rec, pos, quat) {
+    /** `teleport`: the sketch wrote a POSITION (even the one it already has), so a glide queued by moveTo() the same frame is dropped. */
+    setPose(rec, pos, quat, teleport = false) {
+      wakeAround(rec); // whatever rests where it WAS must notice
+      for (const j of rec.joints) wakeJoint(j); // and what hangs from it (a hook moved away from a sleeping weight)
+      if (teleport && glide.has(rec)) { world.setVelocity(rec, [0, 0, 0]); world.setAngularVelocity(rec, [0, 0, 0]); glide.delete(rec); }
       const p = new J.RVec3(pos[0], pos[1], pos[2]), q = new J.Quat(quat[0], quat[1], quat[2], quat[3]);
       bi.SetPositionAndRotation(rec.bodyId, p, q, rec.def.collider === 'static' ? J.EActivation_DontActivate : J.EActivation_Activate);
       J.destroy(p); J.destroy(q);
+      wakeAround(rec); // and whatever it now lands in or against (a wall moved into a sleeper must push it)
     },
     getVelocity: (rec) => v3(bi.GetLinearVelocity(rec.bodyId)),
     setVelocity(rec, v) { if (rec.def.collider !== 'static') withVec(v, (x) => bi.SetLinearVelocity(rec.bodyId, x)); },
@@ -507,11 +623,17 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
      *  whatever touches it; it stops there. Moving it by setPose instead is a teleport. */
     moveKinematic(rec, pos, quat) {
       if (rec.def.collider !== 'kinematic' && rec.def.collider !== 'none') throw new Error("moveTo is for 'kinematic' bodies (a 'dynamic' one is moved by forces and velocity, a 'static' one never moves)");
-      const q = quat ?? pose(rec).quat;
+      const ang = world.getAngularVelocity(rec);
+      let q = quat ?? pose(rec).quat;
+      const spin = Math.hypot(...ang);
+      if (!quat && spin > 1e-9) { // a solid that is turning keeps turning while it glides: aim at the rotation it will have after this step
+        const half = (spin * FIXED_DT) / 2, k = Math.sin(half) / spin;
+        q = qmul([ang[0] * k, ang[1] * k, ang[2] * k, Math.cos(half)], q);
+      }
       const p = new J.RVec3(pos[0], pos[1], pos[2]), r = new J.Quat(q[0], q[1], q[2], q[3]);
       bi.MoveKinematic(rec.bodyId, p, r, FIXED_DT);
       J.destroy(p); J.destroy(r);
-      glide.add(rec);
+      glide.set(rec, ang);
     },
     centerOfMass: (rec) => v3(rec.body.GetCenterOfMassPosition()),
     /** The body's shape as triangles in its own space: a flat Float32Array, 9 numbers a triangle.
@@ -535,7 +657,10 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
       if (a === b) throw new Error('a joint needs two different bodies');
       if (a.def.collider === 'static' && b.def.collider === 'static') throw new Error("a joint needs at least one body that can move: two 'static' bodies cannot be joined");
       const pa = pose(a), pb = pose(b);
-      const anchor = spec.anchor ?? pa.pos;
+      // an anchorless slider or glue joint holds at the body that can move (or halfway between two that can): an anchor on
+      // a static base 3 m from the car would make a long lever for the solver, and the car stopped short of its limit
+      const movableAt = a.def.collider === 'static' ? pb.pos : b.def.collider === 'static' ? pa.pos : [(pa.pos[0] + pb.pos[0]) / 2, (pa.pos[1] + pb.pos[1]) / 2, (pa.pos[2] + pb.pos[2]) / 2];
+      const anchor = spec.anchor ?? (kind === 'slider' || kind === 'glue' ? movableAt : pa.pos);
       const axis = unit3(spec.axis ?? (kind === 'slider' ? [1, 0, 0] : [0, 1, 0]));
       const s = { lower: spec.lower ?? null, upper: spec.upper ?? null, friction: spec.friction ?? 0 };
       if (kind === 'hinge') {
@@ -549,24 +674,30 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
         s.rope = !!spec.rope; s.min = s.rope ? 0 : len; s.max = len;
         if (spec.spring) s.spring = { hz: spec.spring.hz ?? 2, damping: spec.spring.damping ?? 0.5 };
       }
-      const j = { kind, a, b, alive: true, constraint: null, spec: s,
-        local: { anchor: qrot(qinv(pa.quat), sub3(anchor, pa.pos)), axis: qrot(qinv(pa.quat), axis) } };
+      const j = { kind, a, b, alive: true, constraint: null, spec: s };
+      const n = perpendicular(kind === 'glue' ? [1, 0, 0] : axis); // glue keeps the two bodies' world axes X and Y as they were
+      const jaxis = kind === 'glue' ? [1, 0, 0] : axis, jnorm = kind === 'glue' ? [0, 1, 0] : n;
+      const frameOf = (p) => ({ anchor: qrot(qinv(p.quat), sub3(anchor, p.pos)), axis: qrot(qinv(p.quat), jaxis), normal: qrot(qinv(p.quat), jnorm) });
+      j.local = { ...frameOf(pa), b: frameOf(pb) };
       buildJoint(j);
       a.joints.add(j); b.joints.add(j); joints.add(j);
+      wakeJoint(j); // two sleepers joined must start pulling on each other
       return j;
     },
     removeJoint(j) {
       if (!j.alive) return;
+      wakeJoint(j); // what hung on it must fall (both bodies are still alive here: removeBody drops its joints first)
       dropConstraint(j);
       j.alive = false; j.a.joints.delete(j); j.b.joints.delete(j); joints.delete(j);
     },
     /** Hinge: radians from the start pose. Slider: metres from the start. null = no limit. */
     setJointLimits(j, lower, upper) {
       if (j.kind !== 'hinge' && j.kind !== 'slider') return;
-      const lo = lower ?? (j.kind === 'hinge' ? -Math.PI : -1e9), hi = upper ?? (j.kind === 'hinge' ? Math.PI : 1e9);
+      const hinge = j.kind === 'hinge';
       j.spec.lower = lower; j.spec.upper = upper;
-      const c = J.castObject(j.constraint, j.kind === 'hinge' ? J.HingeConstraint : J.SliderConstraint);
-      c.SetLimits(lo, hi);
+      const lo = lower == null ? (hinge ? -Math.PI : -1e9) : Math.min(0, lower), hi = upper == null ? (hinge ? Math.PI : 1e9) : Math.max(0, upper);
+      const c = J.castObject(j.constraint, hinge ? J.HingeConstraint : J.SliderConstraint);
+      c.SetLimits(hinge ? Math.max(-Math.PI, lo) : lo, hinge ? Math.min(Math.PI, hi) : hi);
       wakeJoint(j);
     },
     setJointFriction(j, f) { j.spec.friction = f; if (j.kind === 'hinge') J.castObject(j.constraint, J.HingeConstraint).SetMaxFrictionTorque(f); wakeJoint(j); },
@@ -597,6 +728,11 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     /** Real mass in kg as Jolt has it (0 for static, kinematic and sensors). */
     massOf(rec) {
       if (rec.def.collider !== 'dynamic') return 0; // only dynamic bodies have a finite mass
+      const lp = rec.def.lockPosition;
+      if (lp === true || (lp && lp.x && lp.y && lp.z)) { // Jolt zeroes the inverse mass when no axis can move: say what it was built with
+        const d = rec.def;
+        return d.mass ?? d.density * (d.shape === 'hull' ? rec.body.GetShape().GetVolume() : volumeOf(d.shape, d.w, d.h, d.d));
+      }
       const inv = rec.body.GetMotionProperties().GetInverseMass();
       return inv > 0 ? 1 / inv : 0;
     },
@@ -615,7 +751,7 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     /** Advance one fixed step and update the touch table. */
     step() {
       jolt.Step(FIXED_DT, 1);
-      for (const rec of glide) { if (rec.alive) { world.setVelocity(rec, [0, 0, 0]); world.setAngularVelocity(rec, [0, 0, 0]); } }
+      for (const [rec, ang] of glide) { if (rec.alive) { world.setVelocity(rec, [0, 0, 0]); world.setAngularVelocity(rec, ang); } }
       glide.clear();
       reconcile();
     },
@@ -626,9 +762,9 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
       const lo = a.id < b.id ? a : b, hi = lo === a ? b : a;
       const k = lo.id * KEY + hi.id;
       const t = touching.get(k);
-      if (t) return { frames: t.frames, began: t.began, ended: false, physical: !t.sensor };
+      if (t) return { frames: t.frames, began: t.began, ended: false, physical: !t.sensor, hit: asSeenFrom(t.hit, a) };
       const e = endedPairs.get(k);
-      return e ? { frames: 0, began: false, ended: true, physical: !e.sensor } : null;
+      return e ? { frames: 0, began: false, ended: true, physical: !e.sensor, hit: asSeenFrom(e.hit, a) } : null;
     },
     /** Every record `rec` touches right now. */
     touchingAll(rec) {
@@ -641,19 +777,19 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     },
 
     /** Closest SOLID body on the line from `from` to `to` ([x,y,z]); sensors are looked through. */
-    rayCast(from, to) {
+    rayCast(from, to, ignore, pick = false) {
       const dir = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
       const o = new J.RVec3(from[0], from[1], from[2]), dv = new J.Vec3(dir[0], dir[1], dir[2]);
       const ray = new J.RRayCast(o, dv);
       closest.Reset();
-      narrow.CastRay(ray, rayCfg, closest, rayBp, rayObj, rayBody, rayShape);
+      narrow.CastRay(ray, rayCfg, closest, pick ? pickBp : rayBp, pick ? pickObj : rayObj, filterFor(ignore), rayShape);
       J.destroy(ray); J.destroy(o); J.destroy(dv);
       if (!closest.HadHit()) return null;
       const hit = closest.get_mHit();
       return hitOf(from, dir, byKey.get(hit.get_mBodyID().GetIndexAndSequenceNumber()), hit.get_mFraction(), hit.get_mSubShapeID2().GetValue());
     },
     /** Every solid body along the line, nearest first. */
-    rayCastAll(from, to) {
+    rayCastAll(from, to, ignore, pick = false) { // pick: the mouse's ray, which also sees 'none' solids
       const dir = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
       const hits = [];
       const col = new J.CastRayCollectorJS();
@@ -664,10 +800,11 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
       };
       const o = new J.RVec3(from[0], from[1], from[2]), dv = new J.Vec3(dir[0], dir[1], dir[2]);
       const ray = new J.RRayCast(o, dv);
-      narrow.CastRay(ray, rayCfg, col, rayBp, rayObj, rayBody, rayShape);
+      narrow.CastRay(ray, rayCfg, col, pick ? pickBp : rayBp, pick ? pickObj : rayObj, filterFor(ignore), rayShape);
       J.destroy(ray); J.destroy(o); J.destroy(dv); J.destroy(col);
       hits.sort((a, b) => a.f - b.f);
-      return hits.map((h) => hitOf(from, dir, byKey.get(h.key), h.f, h.sub)).filter(Boolean);
+      const seenBody = new Set(); // a torus or a closed mesh is crossed several times: the nearest hit per body
+      return hits.filter((h) => !seenBody.has(h.key) && seenBody.add(h.key)).map((h) => hitOf(from, dir, byKey.get(h.key), h.f, h.sub)).filter(Boolean);
     },
 
     /** An instant outward push: `magnitude` is the speed given at the centre, fading to
@@ -689,9 +826,24 @@ export function createPhysics(J, { gravity = [0, 0, 0] } = {}) {
     bodies: () => all,
     dispose() {
       for (const rec of [...all]) world.removeBody(rec);
+      for (const f of [rayBp, rayObj, pickBp, pickObj]) J.destroy(f);
       J.destroy(jolt);
+      groupFilter.Release();
     },
   };
+
+  // A removed Solid keeps its record, and its body id is a pointer into memory Jolt hands to the NEXT body, so a
+  // push on a removed record moved some other body (measured). Every per-body call now does nothing for a
+  // record that is gone, and the readers answer with what it was when it was removed.
+  const DEAD_READ = {
+    getPose: (r) => r.last.pose, getVelocity: (r) => r.last.vel, getAngularVelocity: (r) => r.last.ang, centerOfMass: (r) => r.last.com,
+    isAwake: () => false, isAsleep: () => false, massOf: () => 0, triangles: () => new Float32Array(0),
+  };
+  const DEAD_WRITE = ['setPose', 'setVelocity', 'setAngularVelocity', 'addForce', 'addImpulse', 'addTorque', 'addForceAt', 'addImpulseAt',
+    'addAngularImpulse', 'moveKinematic', 'setFriction', 'setBounciness', 'setDrag', 'setRotationDrag', 'setGravityScale', 'setSuperFast',
+    'setMaxSpeed', 'setMaxSpin', 'setAllowSleeping', 'setGroup', 'rebuild'];
+  for (const [name, dead] of Object.entries(DEAD_READ)) { const f = world[name]; world[name] = (rec, ...a) => (rec.alive ? f(rec, ...a) : dead(rec)); }
+  for (const name of DEAD_WRITE) { const f = world[name]; world[name] = (rec, ...a) => (rec.alive ? f(rec, ...a) : undefined); }
 
   function hitOf(from, dir, rec, fraction, subValue) {
     if (!rec) return null;

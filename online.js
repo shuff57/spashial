@@ -150,7 +150,6 @@ export function createOnline(env) {
     players: [],
     error: null,
     live: false,
-    peers: {},
     host(seats) {
       if (seats !== undefined) {
         if (typeof seats !== 'number') throw new TypeError(`online.host(players) takes the number of players, 2 to 4 (got ${show(seats)})`);
@@ -219,9 +218,15 @@ export function createOnline(env) {
     sharedBy(seat) {
       const byId = ghosts.get(seat);
       if (!byId) return [];
-      return [...byId.keys()].sort((a, b) => a - b).map((id) => byId.get(id).ghost);
+      return [...byId.keys()].sort((a, b) => a - b).map((id) => byId.get(id).ghost).filter((g) => g.removed !== true); // a ghost the sketch just deleted is not listed
     },
   };
+  // worked out when it is read, from the same list, so it can never show a ghost sharedBy() would not
+  Object.defineProperty(online, 'peers', { enumerable: true, get() {
+    const out = {};
+    for (const seat of ghosts.keys()) { const list = online.sharedBy(seat); if (list.length) out[seat] = list; }
+    return out;
+  } });
   Object.defineProperty(online, 'isHost', { enumerable: true, get: () => online.seat === 0 });
 
   // ---- talking to the host page ---------------------------------------------
@@ -277,7 +282,7 @@ export function createOnline(env) {
     const s = env.readBody(body); // throws once the body is deleted
     const o = { id, x: round(s.x, 3), y: round(s.y, 3), z: round(s.z, 3), q: unitQuat(s.q).map((v) => round(v, 4)) };
     if (finite(s.vx) && finite(s.vy) && finite(s.vz)) { o.vx = round(s.vx, 3); o.vy = round(s.vy, 3); o.vz = round(s.vz, 3); }
-    for (const k of ['w', 'h', 'dp']) o[k] = finite(s[k]) ? Math.max(0, round(s[k], 3)) : 0;
+    for (const k of ['w', 'h', 'dp']) o[k] = finite(s[k]) && s[k] > 0 ? Math.max(0.001, round(s[k], 3)) : 0; // a 0.4 mm cube is still a cube, not a size of 0
     if (typeof s.sh === 'string' && SHAPE_RE.test(s.sh)) o.sh = s.sh;
     if (typeof s.c === 'string' && s.c.length <= 40 && COLOR_RE.test(s.c)) o.c = s.c;
     o.v = s.v !== false;
@@ -332,17 +337,18 @@ export function createOnline(env) {
     guard('move a peer\'s body', () => env.updateGhost(rec.ghost, { ...rec.look, x: p.x, y: p.y, z: p.z, q: p.q }));
   }
 
-  function refreshPeers() {
-    const out = {};
-    for (const seat of ghosts.keys()) {
-      const list = online.sharedBy(seat);
-      if (list.length) out[seat] = list;
+  /** A sketch can delete a peer's ghost (it is an ordinary Solid). Forget those, so peers does not list a
+   *  dead body and the next frame does not try to move it; the peer's next share makes a fresh one. */
+  function pruneRemoved() {
+    for (const [seat, byId] of [...ghosts]) {
+      for (const [id, rec] of [...byId]) if (rec.ghost && rec.ghost.removed === true) byId.delete(id);
+      if (!byId.size) ghosts.delete(seat);
     }
-    online.peers = out;
   }
 
   function onShare(seat, list) {
     if (typeof seat !== 'number' || seat === online.seat || !Array.isArray(list) || !list.length) return;
+    pruneRemoved();
     const byId = ghosts.get(seat) || new Map();
     ghosts.set(seat, byId);
     const t = env.now();
@@ -365,7 +371,6 @@ export function createOnline(env) {
       if (rec.samples.length === 1) place(rec, t);
     }
     if (!byId.size) ghosts.delete(seat);
-    refreshPeers();
   }
 
   /** Delete the ghosts of one seat (or of every seat), or one of them. */
@@ -379,11 +384,11 @@ export function createOnline(env) {
       }
       if (!byId.size) ghosts.delete(s);
     }
-    refreshPeers();
   }
 
   function tick() {
     const t = env.now();
+    pruneRemoved();
     shareOut(t);
     for (const byId of ghosts.values()) for (const rec of byId.values()) place(rec, t);
   }

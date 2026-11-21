@@ -104,7 +104,11 @@ for (const o of REFERENCE) {
 }
 const known = new Set([...REFERENCE.map((o) => o.object), ...GLOBALS.map((g) => g.name), ...GLOBAL_VALUES.map((g) => g.name),
   'setup', 'update', 'draw', 'drawTop', 'preload', 'Vector', 'Cube', 'Sphere', 'Cylinder', 'Capsule', 'Cone', 'Torus', 'Floor', 'Joint', 'World', 'Camera', 'Kb', 'Mouse', 'AmbientLight', 'SunLight', 'RayHit', 'SolidMouse',
-  'LEFT', 'RIGHT', 'CENTER', 'STATIC', 'DYNAMIC', 'KINEMATIC', 'Vec3', 'Vec3Like', 'Collider', 'SolidShape', 'SoundClips', 'MultiplayerMode']);
+  'LEFT', 'RIGHT', 'CENTER', 'STATIC', 'DYNAMIC', 'KINEMATIC', 'Vec3', 'Vec3Like', 'Collider', 'SolidShape', 'SoundClips', 'MultiplayerMode',
+  // argument types, documented on the rows that take them (rayCast's { ignore }, a touch callback's hit)
+  'RayOptions', 'Impact',
+  // added to the sketch by multiplayer(), so they do not exist until it is called: documented on the multiplayer row and the Online play page
+  'game', 'players', 'turn', 'seat', 'nextTurn', 'myTurn']);
 const undocumented = topLevel.filter((n) => !known.has(n));
 t.check('every global declared in the typings is documented somewhere', !undocumented.length, undocumented);
 

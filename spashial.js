@@ -93,15 +93,18 @@ function parseColor(c) {
 const asList = (o) => (Array.isArray(o) ? o : [o]);
 function touchVerb(self, other, cb, answer) {
   let result = answer.zero;
-  for (const o of asList(other)) {
+  for (const o of [...asList(other)]) { // a copy: the callback may remove members
     if (!o || o === self || !o._rec || !self._rec) continue;
     const t = S.phys.touching(self._rec, o._rec);
     const v = answer.of(t);
-    if (answer.hit(v)) { if (cb) cb(self, o); result = answer.merge(result, v); }
+    if (answer.hit(v)) { if (cb) cb(self, o, impactOf(t)); result = answer.merge(result, v); }
   }
   return result;
 }
 const physical = (t) => !!(t && t.physical);
+// The third argument of a touch callback: where, which way and how hard. `normal` points from the solid you asked
+// toward the other one; `speed` is how fast they were closing, in units per frame like vel. None for a sensor overlap.
+const impactOf = (t) => (t && t.hit ? { point: new Vector(...t.hit.point), normal: new Vector(...t.hit.normal), speed: t.hit.speed / 60 } : undefined);
 // `merge` combines the answers of several members: "did ANY say yes" for the yes/no verbs, the
 // longest count for the counting ones. (It was once `() => true`, which made a Group answer yes
 // whenever it was asked, whatever its members said.)
@@ -124,9 +127,11 @@ function normCollider(v) {
   throw COLLIDER_ERR(v);
 }
 const ROUND = new Set(['sphere', 'cylinder', 'capsule', 'cone', 'torus']);
+/** A shared flat triangle has no thickness: the peer's stand-in box gets a sliver so it can be made. */
+const thin = (v) => Math.max(+v || 0, 0.001);
 function fit(shape, w, h, d) { // round shapes have one width
   if (shape === 'sphere') return { w, h: w, d: w };
-  if (ROUND.has(shape)) return { w, h, d: w };
+  if (ROUND.has(shape)) return { w, h: shape === 'capsule' ? Math.max(h, w) : h, d: w }; // a capsule is never shorter than it is wide
   return { w, h, d };
 }
 const DEFAULT_SIZE = { // [w, h, d] multipliers for a single size argument
@@ -309,6 +314,7 @@ class Solid {
         () => S.phys.getVelocity(this._rec).map((v) => v / 60),
         (a) => S.phys.setVelocity(this._rec, a.map((v) => v * 60))),
       rotation: new LiveVector(() => this._euler(), (a) => this._turnTo(a)), // degrees
+      scale: new LiveVector(() => [this._scale.x, this._scale.y, this._scale.z], (a) => { this._scale = new Vector(a[0], a[1], a[2]); this._syncVisual(); }),
       angularVelocity: new LiveVector( // degrees per frame
         () => S.phys.getAngularVelocity(this._rec).map((v) => (v * DEG) / 60),
         (a) => S.phys.setAngularVelocity(this._rec, a.map((v) => v * RAD * 60))),
@@ -367,6 +373,7 @@ class Solid {
     this._material.visible = !this._modelObj; // a model draws instead of the shape
     this._material.opacity = this._opacity;
     this._material.transparent = this._opacity < 1;
+    for (const m of this._modelMats ?? []) { m.opacity = this._opacity * m.userData.baseOpacity; m.transparent = this._opacity < 1 || m.userData.baseTransparent; }
     this._material.metalness = this._metal;
     this._material.roughness = this._rough;
     this._material.color.copy(parseColor(this._texKey && !this._colorSet ? '#ffffff' : this._color));
@@ -381,7 +388,7 @@ class Solid {
     this._cur = { p: [...p], q: [...q] }; this._prev = { p: [...p], q: [...q] };
   }
   _moveTo(a) {
-    S.phys.setPose(this._rec, a, this._cur.q);
+    S.phys.setPose(this._rec, a, this._cur.q, true); // true: a position was WRITTEN, so a moveTo() queued this frame is dropped
     this._cur.p = [...a]; this._prev.p = [...a];
   }
   _turnTo(eulerDeg) {
@@ -423,7 +430,7 @@ class Solid {
     const d = this._rec.def;
     const next = { w: d.w, h: d.h, d: d.d, ...patch };
     if (this._shape === 'sphere') { const s = patch.w ?? patch.h ?? patch.d; next.w = next.h = next.d = s; }
-    else if (ROUND.has(this._shape)) next.d = next.w = patch.d ?? patch.w ?? next.w;
+    else if (ROUND.has(this._shape)) { next.d = next.w = patch.d ?? patch.w ?? next.w; if (this._shape === 'capsule') next.h = Math.max(next.h, next.w); }
     checkSize(this._shape, next);
     this._rebuild(next);
   }
@@ -439,15 +446,16 @@ class Solid {
     }
     if (!PRIMITIVES.includes(s)) throw new TypeError(`shape must be one of ${PRIMITIVES.map((x) => `'${x}'`).join(', ')} (got ${JSON.stringify(v)}); a hull or a triangle mesh is made with new Hull() or new TriangleMesh()`);
     const prev = this._shape, d = this._rec.def;
+    checkSize(s === 'torus' ? 'box' : s, fit(s, d.w, d.h, d.d)); // (only a zero size is refused here: a cube becomes a thick torus as before) a flat triangle mesh has no thickness to make a box from: refused, and the mesh is left as it is
     this._shape = s;
     try { this._rebuild({ shape: s, ...fit(s, d.w, d.h, d.d) }); } catch (e) { this._shape = prev; throw e; }
   }
-  get scale() { return this._scale; }
+  get scale() { return this._live.scale; }
   set scale(v) { this._scale = typeof v === 'number' ? new Vector(v, v, v) : new Vector(...arr3(v, 'scale')); this._syncVisual(); }
   scaleBy(x, y = x, z = x) { this._scale = new Vector(this._scale.x * x, this._scale.y * y, this._scale.z * z); this._syncVisual(); }
 
   // --- looks
-  get color() { return this._color; } set color(v) { this._color = v; this._colorSet = true; this._syncVisual(); }
+  get color() { return this._color; } set color(v) { this._color = typeof v === 'number' ? '#' + parseColor(v).getHexString() : v; this._colorSet = true; this._syncVisual(); } // a grey 0-255 is kept as the colour it is
   /** A texture name (textureNames()), a registered name, or a web address / data: URL; null for the plain colour. */
   get texture() { return this._texKey; }
   set texture(v) {
@@ -474,7 +482,13 @@ class Solid {
     this._clearModel();
     const holder = new THREE.Group();
     holder.add(e.scene.clone(true));
-    holder.traverse((o) => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+    this._modelMats = [];
+    holder.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = o.receiveShadow = true;
+      const own = (m) => { const c = m.clone(); c.userData = { ...c.userData, baseOpacity: m.opacity, baseTransparent: m.transparent }; this._modelMats.push(c); return c; };
+      o.material = Array.isArray(o.material) ? o.material.map(own) : own(o.material);
+    });
     this._modelObj = holder; this._modelEntry = e;
     this._mesh.add(holder);
     this._fitModel();
@@ -489,7 +503,7 @@ class Solid {
     holder.scale.setScalar(scale);
     holder.position.copy(mid).multiplyScalar(-scale);
   }
-  _clearModel() { if (this._modelObj) { this._mesh.remove(this._modelObj); this._modelObj = null; } } // shares the cached model's geometry: nothing to dispose
+  _clearModel() { if (this._modelObj) { this._mesh.remove(this._modelObj); this._modelObj = null; for (const m of this._modelMats ?? []) m.dispose(); this._modelMats = []; } } // shares the cached model's geometry: nothing to dispose
   // the model's own vertices, in this solid's space (for shape = 'hull'); thinned so Jolt stays quick
   _modelPoints() {
     const holder = this._modelObj, out = new Map(), v = new THREE.Vector3();
@@ -564,8 +578,22 @@ class Solid {
   get friction() { return this._rec.def.friction; } set friction(v) { S.phys.setFriction(this._rec, nonNeg(v, 'friction')); }
   get density() { return this._rec.def.density; } set density(v) { this._rebuild({ density: posNum(v, 'density'), mass: null }); }
   get mass() { return this._collider === 'dynamic' ? S.phys.massOf(this._rec) : 0; }
-  set mass(v) { posNum(v, 'mass'); if (this._collider === 'dynamic') this._rebuild({ mass: v }); }
-  get lockRotation() { return this._rec.def.lockRotation; } set lockRotation(v) { this._rebuild({ lockRotation: v }); }
+  set mass(v) { posNum(v, 'mass'); this._rebuild({ mass: v }); } // kept even while it is not dynamic: it weighs this once it becomes dynamic
+  get lockRotation() { return this._lockView('lockRotation'); } set lockRotation(v) { this._rebuild({ lockRotation: normLock(v) }); }
+  /** Keeps it from moving along an axis (`{ z: true }` for a side-scroller), or true for all three. */
+  get lockPosition() { return this._lockView('lockPosition'); } set lockPosition(v) { this._rebuild({ lockPosition: normLock(v) }); }
+  /** true / false, or a live { x, y, z } whose parts can be set one at a time: `body.lockPosition.z = true`. */
+  _lockView(key) {
+    const cur = this._rec.def[key];
+    if (!cur || cur === true) return cur;
+    const self = this, o = {};
+    for (const ax of ['x', 'y', 'z']) Object.defineProperty(o, ax, {
+      enumerable: true,
+      get() { const c = self._rec.def[key]; return c === true ? true : !!(c && c[ax]); },
+      set(v) { const c = self._rec.def[key]; self[key] = { ...(c === true ? { x: true, y: true, z: true } : c), [ax]: !!v }; },
+    });
+    return o;
+  }
   /** How fast it loses speed to the air, per second (0.05 by default, so rolling things come to rest). */
   get drag() { return this._rec.def.drag; } set drag(v) { S.phys.setDrag(this._rec, nonNeg(v, 'drag')); }
   get rotationDrag() { return this._rec.def.rotationDrag; } set rotationDrag(v) { S.phys.setRotationDrag(this._rec, nonNeg(v, 'rotationDrag')); }
@@ -618,21 +646,32 @@ class Solid {
   moveAway(target, repel = 0.1) { const t = arr3(target, 'a target'); this._moveTo(this._cur.p.map((v, i) => v - (t[i] - v) * repel)); }
 
   _spawn() { // a fresh Solid like this one, for clone(); Hull and TriangleMesh bring their points along
-    const Ctor = this instanceof Floor ? Solid : this.constructor; // Floor's constructor takes a size, not a position
-    const c = new Ctor(...this._cur.p, this._rec.def.w, this._rec.def.h, this._rec.def.d, this._collider);
-    if (this instanceof Floor) c.shape = 'box';
+    const d = this._rec.def;
+    let Ctor = this instanceof Floor ? Solid : this.constructor; // Floor's constructor takes a size, not a position
+    const own = [Solid, Cube, Sphere, Cylinder, Capsule, Cone, Torus, Hull, TriangleMesh, Floor];
+    while (!own.includes(Ctor)) Ctor = Object.getPrototypeOf(Ctor); // a Group's solid, or a class the student wrote (its constructor takes THEIR arguments), is cloned as the engine class under it: replaying a group's defaults would undo what this one overrode
+    // the class's own shape only fits a solid still that shape; a Cube turned into a sphere (or a Torus into anything) is built plain
+    // and then given the shape AND the exact size it has now, so its collider, volume and mass are the same
+    const plain = (this._shape !== (Ctor.defaultShape ?? 'box') && this._shape !== 'hull') || Ctor === Hull || Ctor === TriangleMesh || this instanceof Floor;
+    const c = new (plain ? Solid : Ctor)(...this._cur.p, d.w, d.h, d.d, this._collider);
+    if (this._shape === 'hull') c._become('hull', { points: d.points.map((p) => [...p]) }); // a hull wrapped round a model, or a Hull that was reshaped back
+    else if (c._shape !== this._shape) { c._shape = this._shape; c._rebuild({ shape: this._shape, w: d.w, h: d.h, d: d.d }); }
     return c;
   }
   clone() {
     const c = this._spawn();
-    if (this._colorSet) c.color = this._color;
+    c._color = this._color; c._colorSet = this._colorSet; // (a Floor has its own colour without having 'set' one)
     c.opacity = this._opacity; c.visible = this._visible;
     c._repeat = [...this._repeat]; if (this._texKey) c.texture = this._texKey;
     if (this._modelKey) c.model = this._modelKey;
     c.debug = this._debug;
     c._textColor = this._textColor; c._textSize = this._textSize; if (this._text != null) c.text = this._text;
-    c.friction = this.friction; c.bounciness = this.bounciness; c.density = this.density;
+    c.friction = this.friction; c.bounciness = this.bounciness; if (c.density !== this.density) c.density = this.density; c.metalness = this.metalness; c.roughness = this.roughness;
     c.drag = this.drag; c.rotationDrag = this.rotationDrag; c.gravityScale = this.gravityScale;
+    if (this.lockRotation) c.lockRotation = this.lockRotation;
+    if (this.lockPosition) c.lockPosition = this.lockPosition;
+    if (this.allowSleeping === false) c.allowSleeping = false;
+    if (this._rec.def.mass != null) c.mass = this._rec.def.mass; // a mass set by hand is part of what it is
     c.isSuperFast = this.isSuperFast; c.collisionGroup = this.collisionGroup;
     if (this.maxSpeed !== Infinity) c.maxSpeed = this.maxSpeed;
     if (this.maxSpin !== Infinity) c.maxSpin = this.maxSpin;
@@ -647,6 +686,7 @@ class Solid {
     S.phys.removeBody(this._rec);
     S.scene.remove(this._mesh);
     if (this._label) { this._text = null; this._drawLabel(); }
+    this._clearModel();
     if (this._debugObj) { this._debug = false; this._drawDebug(); }
     if (this._map) this._map.dispose();
     this._mesh.geometry.dispose(); this._material.dispose();
@@ -664,6 +704,8 @@ for (const name of ['pos', 'vel', 'rotation', 'angularVelocity']) liveProperty(S
 for (const verb of Object.keys(VERBS)) {
   Solid.prototype[verb] = function (other, cb) { return touchVerb(this, other, cb, VERBS[verb]); };
 }
+/** A lock is true, false or { x, y, z }: stored as its own copy, so another solid's object is never shared. */
+const normLock = (v) => (v && typeof v === 'object' ? { x: !!v.x, y: !!v.y, z: !!v.z } : !!v);
 function checkSize(shape, { w, h, d }) {
   for (const [k, v] of [['w', w], ['h', h], ['d', d]]) if (!(v > 0)) throw new RangeError(`${k} must be above 0 (got ${v})`);
   if (shape === 'torus' && !(h < w)) throw new RangeError(`a torus needs h (the thickness of the ring) smaller than w (across), got h ${h}, w ${w}`);
@@ -680,12 +722,13 @@ class Hull extends Solid {
   static defaultShape = 'box';
   constructor(x, y, z, points, collider = 'dynamic') {
     if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number' || !Array.isArray(points)) throw new TypeError('new Hull() takes x, y, z, a list of points like [[0, 0, 0], [1, 0, 0], ...], then an optional collider');
+    const pts = points.map((p) => [...arr3(p, 'a point')]); // checked before anything is made: a bad point leaves no box behind
     super(x, y, z, 1, collider);
-    this._points = points.map((p) => [...arr3(p, 'a point')]);
+    this._points = pts;
     this._become('hull', { points: this._points });
   }
-  _spawn() { return new Hull(...this._cur.p, this._points, this._collider); }
-  get points() { return this._points.map((p) => [...p]); }
+  _spawn() { return this._shape === 'hull' ? new Hull(...this._cur.p, this._rec.def.points, this._collider) : super._spawn(); } // a Hull reshaped into a sphere clones as one; one wrapped round a model clones with ITS points now
+  get points() { return (this._shape === 'hull' ? this._rec.def.points : this._points).map((p) => [...p]); }
 }
 // A solid is any shape made of triangles: a room, terrain, a bowl. It cannot be dynamic (it has no
 // mass), so it is 'static' unless you say 'kinematic'.  new TriangleMesh(x, y, z, vertices, triangles, collider?)
@@ -693,13 +736,13 @@ class TriangleMesh extends Solid {
   static defaultShape = 'box';
   constructor(x, y, z, vertices, triangles, collider = 'static') {
     if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number' || !Array.isArray(vertices) || !Array.isArray(triangles)) throw new TypeError('new TriangleMesh() takes x, y, z, a list of vertices like [[0, 0, 0], ...], a list of triangles like [[0, 1, 2], ...], then an optional collider');
+    const verts = vertices.map((p) => [...arr3(p, 'a vertex')]), tris = triangles.map((t) => [...t]), kind = normCollider(collider); // checked before anything is made
     super(x, y, z, 1, 'static');
-    this._verts = vertices.map((p) => [...arr3(p, 'a vertex')]);
-    this._tris = triangles.map((t) => [...t]);
-    this._become('triangles', { vertices: this._verts, triangles: this._tris, collider: normCollider(collider) });
+    this._verts = verts; this._tris = tris;
+    this._become('triangles', { vertices: this._verts, triangles: this._tris, collider: kind });
     this._collider = this._rec.def.collider;
   }
-  _spawn() { return new TriangleMesh(...this._cur.p, this._verts, this._tris, this._collider); }
+  _spawn() { return this._shape === 'triangles' ? new TriangleMesh(...this._cur.p, this._verts, this._tris, this._collider) : super._spawn(); } // a mesh reshaped into a primitive clones as that primitive
   get vertices() { return this._verts.map((p) => [...p]); }
   get triangles() { return this._tris.map((t) => [...t]); }
 }
@@ -819,20 +862,25 @@ class Group extends Array {
     Object.defineProperty(this, '_defaults', { value: {}, writable: true });
     const group = this;
     Object.defineProperty(this, 'Solid', { value: class extends Solid {
-      constructor(...a) { super(...a); group._join(this); for (const [k, v] of Object.entries(group._defaults)) this[k] = v; }
+      static _group = group;
+      constructor(...a) {
+        super(...a); group._join(this);
+        try { for (const [k, v] of Object.entries(group._defaults)) this[k] = v; } catch (e) { this.remove(); throw e; } // a bad default must not leave a live body behind
+      }
     } });
     S.groups.add(this);
   }
   _join(a) { if (!this.includes(a)) { Array.prototype.push.call(this, a); a._groups.add(this); } }
-  _drop(a) { const i = this.indexOf(a); if (i >= 0) Array.prototype.splice.call(this, i, 1); a._groups.delete(this); }
+  _drop(a) { if (!a) return; const i = this.indexOf(a); if (i >= 0) Array.prototype.splice.call(this, i, 1); a._groups.delete(this); }
   newSolid(x, y, z, size) { return new this.Solid(x, y, z, ...(size === undefined ? [] : [size])); }
   push(...as) { for (const a of as) this._join(a); return this.length; }
+  unshift(...as) { for (const a of as) if (!this.includes(a)) { Array.prototype.unshift.call(this, a); a._groups.add(this); } return this.length; }
   add(...as) { return this.push(...as); }
   contains(a) { return this.includes(a); }
   remove(a) { this._drop(a); }
   delete() { for (const a of [...this]) a.remove(); }
   get amount() { return this.length; }
-  set amount(n) { while (this.length > n) this[this.length - 1].remove(); while (this.length < n) this.newSolid(0, 0, 0); }
+  set amount(n) { while (this.length > n) { const m = this[this.length - 1]; m.remove(); if (this[this.length - 1] === m) Array.prototype.pop.call(this); } while (this.length < n) this.newSolid(0, 0, 0); } // (an entry put in by hand and already removed must not loop for ever)
   applyForce(x, y, z) { for (const a of this) a.applyForce(x, y, z); }
   /** Removes members that fell below y = -50 or drifted more than 200 units out, plus `margin`. */
   cull(margin = 0, cb) {
@@ -848,14 +896,14 @@ for (const verb of Object.keys(VERBS)) {
   Group.prototype[verb] = function (other, cb) {
     const v = VERBS[verb];
     let result = v.zero;
-    for (const a of this) result = v.merge(result, touchVerb(a, other, cb, v));
+    for (const a of [...this]) result = v.merge(result, touchVerb(a, other, cb, v)); // a copy: the callback may remove members
     return result;
   };
 }
-for (const key of ['color', 'collider', 'bounciness', 'friction', 'density', 'opacity', 'visible', 'drag', 'rotationDrag', 'gravityScale', 'isSuperFast', 'maxSpeed', 'maxSpin', 'allowSleeping', 'collisionGroup', 'texture', 'textureRepeat', 'model', 'debug']) {
+for (const key of ['color', 'collider', 'bounciness', 'friction', 'density', 'opacity', 'visible', 'drag', 'rotationDrag', 'gravityScale', 'isSuperFast', 'maxSpeed', 'maxSpin', 'allowSleeping', 'collisionGroup', 'texture', 'textureRepeat', 'model', 'debug', 'lockRotation', 'lockPosition', 'mass']) {
   Object.defineProperty(Group.prototype, key, {
     get() { return this._defaults[key]; },
-    set(v) { this._defaults[key] = v; for (const a of this) a[key] = v; },
+    set(v) { delete this._defaults[key]; this._defaults[key] = v; for (const a of this) a[key] = v; }, // delete first: new members replay the defaults in the order they were LAST set (mass, then density, then mass again must end on mass)
   });
 }
 const allSolids = new Group();
@@ -868,6 +916,10 @@ const allSolids = new Group();
 class Tiles extends Group {
   constructor(layers, x, y, z, cell = 1, legend = {}) {
     super();
+    try { Tiles._fill(this, layers, x, y, z, cell, legend); } catch (e) { S.groups.delete(this); throw e; }
+  }
+  static _fill(self, layers, x, y, z, cell, legend) {
+    const add = (t) => self.add(t);
     if (Array.isArray(layers) && layers.length && typeof layers[0] === 'string') layers = [layers]; // one layer is fine
     if (!Array.isArray(layers) || !layers.every((l) => Array.isArray(l) && l.every((r) => typeof r === 'string'))) throw new TypeError("new Tiles() takes layers of text rows, like [['###', '# #', '###']], then x, y, z, the cell size and a legend");
     for (const k of ['x', 'y', 'z']) if (typeof { x, y, z }[k] !== 'number') throw new TypeError(`new Tiles() needs a number for ${k} (the middle of the first cell)`);
@@ -881,7 +933,9 @@ class Tiles extends Group {
       if (!legend[ch]) throw new RangeError(`the level has the character '${ch}' (layer ${layer}, row ${r}, column ${col}) but the legend has no '${ch}'. Add it to the legend, or use a space for an empty cell`);
       cells.push([legend[ch], x + col * cell, y + layer * cell, z + r * cell]);
     })));
-    for (const [g, px, py, pz] of cells) this.add(g.newSolid(px, py, pz, cell));
+    const made = [];
+    try { for (const [g, px, py, pz] of cells) { const t = g.newSolid(px, py, pz, cell); made.push(t); add(t); } }
+    catch (e) { for (const t of made) t.remove(); throw e; } // a group default that throws leaves no half-built level
   }
 }
 
@@ -899,7 +953,11 @@ function realStorage() {
   if (localStore === undefined) { try { window.localStorage.getItem('spashial:probe'); localStore = window.localStorage; } catch { localStore = null; } } // probe by USE: Chrome throws on the property access
   return localStore;
 }
-const saved = () => (window.__spashialStorage ??= window.__moshionStorage ?? {});
+const saved = () => { // no prototype, so a key like '__proto__' is an ordinary name
+  let m = window.__spashialStorage ?? window.__moshionStorage;
+  if (!m || Object.getPrototypeOf(m) !== null) m = Object.assign(Object.create(null), m ?? {});
+  return (window.__spashialStorage = m);
+};
 const tellHost = (msg) => { try { window.parent.postMessage({ source: 'preview-storage', ...msg }, '*'); } catch { /* no host */ } };
 const saveName = (name, fn) => { if (typeof name !== 'string' || !name) throw new TypeError(`${fn}(name, ...) needs a name like 'highScore' (got ${JSON.stringify(name)})`); return name; };
 function storeItem(name, value) {
@@ -907,6 +965,7 @@ function storeItem(name, value) {
   let raw;
   try { raw = JSON.stringify(value); } catch { throw new TypeError(`storeItem('${name}', value) cannot save that: it refers to itself. Save plain numbers, text, lists and objects`); }
   if (raw === undefined) throw new TypeError(`storeItem('${name}', value) cannot save ${typeof value === 'function' ? 'a function' : 'undefined'}. Save plain numbers, text, lists and objects`);
+  if (name.length > 200) throw new RangeError(`storeItem: the name is too long to save (${name.length} characters; the limit is 200)`);
   if (raw.length > SAVE_LIMIT) throw new RangeError(`storeItem('${name}', value) is too big to save (${Math.round(raw.length / 1024)} KB; the limit is ${SAVE_LIMIT / 1024} KB)`);
   const ls = realStorage();
   if (ls) { ls.setItem('spashial:' + name, raw); return; }
@@ -986,11 +1045,28 @@ const shapeHit = (h) => (h ? { solid: h.rec.userData ?? null, point: new Vector(
 const pt = (a, b, c) => (typeof a === 'number' ? [a, b, c] : arr3(a, 'a point'));
 const groupName = (v) => { if (typeof v !== 'string' || !v) throw new TypeError(`a collision group is a name like 'bullets' (got ${JSON.stringify(v)})`); return v; };
 const liveGravity = new LiveVector(() => S.phys.gravity, (a) => { S.phys.gravity = a; });
+function rayArgs(args) {
+  const last = args[args.length - 1];
+  let ignore;
+  if (last && typeof last === 'object' && !Array.isArray(last) && !('x' in last) && 'ignore' in last) {
+    ignore = asList(last.ignore).filter((o) => o && o._rec).map((o) => o._rec);
+    args = args.slice(0, -1);
+  }
+  // world.rayCast(from, to, shooter): a bare Solid or Group as the third argument of the two-point form is the
+  // same as { ignore: shooter } (a Solid has an x, so it cannot be told from a coordinate by its shape)
+  if (args.length === 3 && typeof args[0] !== 'number' && (args[2] instanceof Solid || args[2] instanceof Group)) {
+    ignore = asList(args[2]).filter((o) => o && o._rec).map((o) => o._rec);
+    args = args.slice(0, 2);
+  }
+  const [a, b, c, d, e, f] = args;
+  return { a, b, c, d, e, f, ignore };
+}
 const world = {
   get gravity() { return liveGravity; },
   set gravity(v) { liveGravity.set(arr3(v, 'gravity')); },
   get allowSleeping() { return S.phys.allowSleeping; }, set allowSleeping(v) { S.phys.allowSleeping = v; },
   autoStep: true,
+  /** One fixed 1/60 s step (with autoStep off). */
   physicsUpdate() { S.phys.step(); syncAll(); },
   /** More steps hold stacks and joints steadier and cost more time (default 10). */
   get solverSteps() { return S.phys.solverSteps; }, set solverSteps(v) { S.phys.solverSteps = Math.round(posNum(v, 'solverSteps')); },
@@ -1005,14 +1081,32 @@ const world = {
   ignoreCollisions(a, b) { S.phys.ignoreCollisions(groupName(a), b === undefined ? undefined : groupName(b)); },
   restoreCollisions(a, b) { S.phys.restoreCollisions(groupName(a), b === undefined ? undefined : groupName(b)); },
   get joints() { return [...S.joints]; },
-  getSolidAt(sx, sy) { const r = pickRay(sx, sy); const h = S.phys.rayCast(r.from, r.to); return h?.rec.userData ?? undefined; },
-  rayCast(a, b, c, d, e, f) {
-    const [from, to] = typeof a === 'number' ? [[a, b, c], [d, e, f]] : [pt(a), pt(b)];
-    return shapeHit(S.phys.rayCast(from, to));
+  getSolidAt(sx, sy) { // an invisible solid is not what the pointer is on
+    const r = pickRay(sx, sy);
+    // the mouse points at what is DRAWN: a visible, not fully clear, not scaled-to-nothing solid. The physics shape is what
+    // the ray tests (scale is a visual size only), so a hidden sensor in front is skipped, one closest-hit ray at a time
+    const pickable = (o) => o && o._visible && o._opacity > 0 && !o._removed && o._scale.x * o._scale.y * o._scale.z !== 0;
+    const skip = [];
+    for (let i = 0; i < 6; i++) { // (the full walk of every hit is ~40x dearer, and a few hidden things in front are the usual case)
+      const near = S.phys.rayCast(r.from, r.to, skip.length ? skip : undefined, true);
+      if (!near) return undefined;
+      if (pickable(near.rec.userData)) return near.rec.userData;
+      skip.push(near.rec);
+    }
+    for (const h of S.phys.rayCastAll(r.from, r.to, undefined, true)) { const o = h.rec.userData; if (pickable(o)) return o; }
+    return undefined;
   },
-  rayCastAll(a, b, c, d, e, f) {
+  // rayCast(from, to) or rayCast(x1, y1, z1, x2, y2, z2), then optionally { ignore: solid | [solids] }: a ray
+  // that skips the shooter (or the player's own feet check)
+  rayCast(...args) {
+    const { a, b, c, d, e, f, ignore } = rayArgs(args);
     const [from, to] = typeof a === 'number' ? [[a, b, c], [d, e, f]] : [pt(a), pt(b)];
-    return S.phys.rayCastAll(from, to).map(shapeHit);
+    return shapeHit(S.phys.rayCast(from, to, ignore));
+  },
+  rayCastAll(...args) {
+    const { a, b, c, d, e, f, ignore } = rayArgs(args);
+    const [from, to] = typeof a === 'number' ? [[a, b, c], [d, e, f]] : [pt(a), pt(b)];
+    return S.phys.rayCastAll(from, to, ignore).map(shapeHit);
   },
   explodeAt(x, y, z, radius = 5, magnitude = 10, falloff = 0) {
     const c = typeof x === 'number' ? [x, y, z] : arr3(x, 'a point');
@@ -1021,11 +1115,13 @@ const world = {
 };
 function makeSolidMouse(a) {
   const over = () => world.getSolidAt(mouse.x, mouse.y) === a;
-  let was = false;
+  // enter and exit are worked out once per tick, so hovers() and hovered() agree whatever order they are asked in
+  let last = -1, now = false, prev = false;
+  const step = () => { const key = S.frames * 1e9 + window.frameCount; if (key !== last) { last = key; prev = now; now = over(); } }; // one reading per tick and per drawn frame
   return {
     hovering: over,
-    hovers() { const n = over(); const r = n && !was; was = n; return r; },
-    hovered() { const n = over(); const r = !n && was; was = n; return r; },
+    hovers() { step(); return now && !prev; },
+    hovered() { step(); return !now && prev; },
     presses: (b) => over() && mouse.presses(b),
     pressing: (b) => over() && mouse.pressing(b) > 0,
     released: (b) => over() && mouse.released(b),
@@ -1239,6 +1335,7 @@ export async function boot() {
   // Online play (online.js): the same `online` and `multiplayer()` as moSHion, with a 3D pose per shared
   // body. The iframe cannot reach a server, so it talks to the host page, which serves it (shCode's
   // /api/rooms, or online-local-host.js between two tabs). Peers' bodies are ghosts: collider 'none'.
+  const wireColor = (c) => { if (SAFE_COLOR.test(c)) return c; try { return '#' + parseColor(c).getHexString(); } catch { return null; } }; // any colour the sketch used, in a form the room accepts
   const SAFE_COLOR = /^(?:[a-z]{3,20}|#[0-9a-f]{3,8}|(?:rgba?|hsla?)\(\s*-?[\d.]+%?(?:\s*,\s*-?[\d.]+%?){2,3}\s*\))$/i; // what the room server accepts
   const net = createOnline({
     post: (msg) => { if (window.parent === window) return false; window.parent.postMessage(msg, '*'); },
@@ -1247,10 +1344,10 @@ export async function boot() {
       if (!(b instanceof Solid)) throw new TypeError(`online.share() takes Solids (got ${b === null ? 'null' : typeof b})`);
       if (b._removed) throw new Error('this Solid was removed');
       const v = S.phys.getVelocity(b._rec), d = b._rec.def;
-      return { x: b._cur.p[0], y: b._cur.p[1], z: b._cur.p[2], q: [...b._cur.q], vx: v[0], vy: v[1], vz: v[2], w: d.w, h: d.h, dp: d.d, sh: b._shape, ...(SAFE_COLOR.test(b._color) ? { c: b._color } : {}), v: b._visible };
+      return { x: b._cur.p[0], y: b._cur.p[1], z: b._cur.p[2], q: [...b._cur.q], vx: v[0], vy: v[1], vz: v[2], w: thin(d.w), h: thin(d.h), dp: thin(d.d), sh: b._shape, ...(wireColor(b._texKey && !b._colorSet ? '#ffffff' : b._color) ? { c: wireColor(b._texKey && !b._colorSet ? '#ffffff' : b._color) } : {}), v: b._visible }; // (a textured solid whose colour was never set draws white, so its ghost does too)
     },
     makeGhost: (st) => {
-      const g = new Solid(st.x, st.y, st.z, st.w ?? 1, st.h ?? 1, st.dp ?? 1, 'none');
+      const g = new Solid(st.x, st.y, st.z, thin(st.w ?? 1), thin(st.h ?? 1), thin(st.dp ?? 1), 'none');
       if (st.sh && st.sh !== 'box' && PRIMITIVES.includes(st.sh)) g.shape = st.sh;
       if (st.c) g.color = st.c;
       if (st.v === false) g.visible = false;
@@ -1258,6 +1355,11 @@ export async function boot() {
       return g;
     },
     updateGhost: (g, st) => {
+      // the peer may change its cube's shape or size: the ghost's sensor and picture follow (before it is placed)
+      const sh = st.sh && PRIMITIVES.includes(st.sh) ? st.sh : 'box';
+      if (sh !== g._shape) g.shape = sh;
+      const want = fit(g._shape, thin(st.w ?? 1), thin(st.h ?? 1), thin(st.dp ?? 1)), d = g._rec.def;
+      if (want.w > 0 && want.h > 0 && want.d > 0 && (Math.abs(d.w - want.w) > 1e-3 || Math.abs(d.h - want.h) > 1e-3 || Math.abs(d.d - want.d) > 1e-3)) g._resize(want);
       g._placeAt([st.x, st.y, st.z], st.q);
       if (st.c && st.c !== g._color) g.color = st.c;
       if (st.v !== undefined && st.v !== g._visible) g.visible = st.v;

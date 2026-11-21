@@ -479,11 +479,213 @@ function crystal() {
   const rot = await of2.evaluate(() => { const s = online.peers[0][0]; return s.rotation.y; });
   chk("and the ROTATION crosses too (a 3D pose, not x and y)", Math.abs(Math.abs(rot) - 90) < 2, rot);
   chk("the ghost has the sender's colour", gp.color === 'tomato', gp);
+  await of1.evaluate(() => { me.w = 2.5; me.h = 2.5; me.d = 2.5; }); await t1.waitForTimeout(1500);
+  const gs = await of2.evaluate(() => { const g = online.peers[0][0]; return { shape: g.shape, size: [g.w, g.h, g.d].map((v) => +v.toFixed(2)), debugSize: g._rec.def.w }; });
+  chk("a peer that resizes its cube: the ghost's size follows (picture AND sensor)", eq(gs.size, [2.5, 2.5, 2.5]) && gs.debugSize === 2.5, gs);
+  await of1.evaluate(() => { me.shape = 'sphere'; }); await t1.waitForTimeout(1500);
+  chk("a peer that changes its cube into a sphere: the ghost becomes a sphere", (await of2.evaluate(() => online.peers[0][0].shape)) === 'sphere', '');
+  let n0 = await of2.evaluate(() => { const g = online.peers[0][0]; g.remove(); return [online.sharedBy(0).includes(g), Object.values(online.peers).flat().includes(g)]; });
+  chk("a deleted ghost is not in sharedBy() or peers THE SAME INSTANT (not only on the next frame)", eq(n0, [false, false]), n0);
+  n0 = 0;
+  await t1.waitForTimeout(1500);
+  const n1 = await of2.evaluate(() => ({ n: Object.values(online.peers).flat().length, alive: Object.values(online.peers).flat().every((g) => !g.removed) }));
+  chk("a sketch that deletes a ghost: it is no longer listed, and the peer's next share makes a fresh live one", [0, 1].includes(n0) && n1.n === 1 && n1.alive, [n0, n1]);
+  await of1.evaluate(() => { me.w = 0.0004; me.h = 0.0004; me.d = 0.0004; }); await t1.waitForTimeout(1500);
+  const tiny = await of2.evaluate(() => { const g = online.peers[0][0]; return { w: g.w, ok: !g.removed }; });
+  const log2 = await t2.innerText('#log');
+  chk("a peer's tiny cube (0.4 mm) is still a cube on the other tab, not a size of 0 that errors", tiny.ok && tiny.w > 0 && !log2.includes('must be above 0'), [tiny, log2.slice(0, 120)]);
+  await of1.evaluate(() => { window.update = () => {}; me.color = 'rgb(255, 0, 0) '; }); await t1.waitForTimeout(1500);
+  const gc = await of2.evaluate(() => online.peers[0][0].color);
+  chk("a colour the sketch wrote with stray spaces still reaches the ghost (in a form the room accepts)", gc.toLowerCase().includes('ff0000') || gc.replace(/ /g, '').toLowerCase().startsWith('rgb(255,0,0'), gc);
+  await of1.evaluate(() => { me.texture = null; me.color = 128; }); await t1.waitForTimeout(1500);
+  const gg = await of2.evaluate(() => online.peers[0][0].color);
+  chk("a grey written as a number (128) is the same grey on the other tab (#808080, not #000080)", gg.toLowerCase() === '#808080', gg);
+  await of1.evaluate(() => { me._colorSet = false; me.texture = 'checker'; }); await t1.waitForTimeout(1500);
+  const gt = await of2.evaluate(() => online.peers[0][0].color);
+  chk("a textured solid whose colour was never set (it draws white) has a white ghost, not the default cyan", ['#ffffff', 'white'].includes(gt.toLowerCase()), gt);
+  await of1.evaluate(() => { window.flat = new TriangleMesh(20, 5, 0, [[0, 0, 0], [1, 0, 0], [0, 0, 1]], [[0, 1, 2]]); online.share(flat); }); await t1.waitForTimeout(1500);
+  const fl = await of2.evaluate(() => Object.values(online.peers).flat().length);
+  const log3 = await t2.innerText('#log');
+  chk("a peer's FLAT triangle mesh (no thickness) still gets a ghost on the other tab, not 'h must be above 0'", fl >= 2 && !log3.includes('must be above 0'), [fl, log3.slice(0, 120)]);
   await t1.click('#lobby >> text=Leave');
   await t1.waitForTimeout(1500);
   const left = await of2.evaluate(() => ({ n: Object.values(online.peers).flat().length, status: online.status }));
   chk("when the host leaves, the room closes for the other tab and the ghost goes", left.n === 0 && ['closed', 'waiting', 'off', 'error'].includes(left.status), left);
   await octx.close();
+
+  section("council review fixes (things that worked alone but broke together)");
+  r = await result(String.raw`let g, zone, visits = 0; function setup() {
+      zone = new Cube(0, 1, 0, 10, 2, 10, 'none'); g = new Group(); g.collider = 'dynamic';
+      for (let i = 0; i < 5; i++) g.newSolid(i - 2, 1, 0, 0.5); }
+      function update() { if (frameCount === 6) { g.overlaps(zone, (s) => { visits++; s.remove(); }); window.__r = { visits, left: g.length }; } }`, 8);
+  chk("removing group members inside a touch callback does not skip any (5 visited, none left)", eq(r, { visits: 5, left: 0 }), r);
+
+  r = await result(String.raw`function setup() {
+      const t = (f) => { try { f(); return ''; } catch (e) { return e.name; } };
+      const bad = new Group(); bad.texture = 'nope'; const before = allSolids.length;
+      const one = t(() => new bad.Solid(0, 0, 0)); const afterOne = allSolids.length - before;
+      const two = t(() => new Tiles([['###']], 0, 0, 0, 1, { '#': bad }));
+      window.__r = { one, afterOne, two, afterTiles: allSolids.length - before, members: bad.length }; }`, 2);
+  chk("a group default that throws leaves NO live solid behind (a Solid, or a whole Tiles level)", r.one === 'TypeError' && r.afterOne === 0 && r.two === 'TypeError' && r.afterTiles === 0 && r.members === 0, r);
+
+  r = await result(GLB_JS + String.raw`
+      function preload() { registerModel('crystal', makeGlb(crystal())); loadModel('crystal'); }
+      function setup() { const s = new Solid(0, 2, 0, 1.6, 2.4, 1.6); s.model = 'crystal'; s.shape = 'hull'; const c = s.clone();
+        const d = new Solid(5, 2, 0, 1.6, 2.4, 1.6); d.model = 'crystal'; d.opacity = 0.3; const e = new Solid(9, 2, 0, 1.6, 2.4, 1.6); e.model = 'crystal';
+        window.__r = { cloneShape: c.shape, cloneHullPts: c._rec.def.points.length > 3, cloneModel: c.model, sameSize: [c.w, c.h, c.d].map((v) => +v.toFixed(2)),
+          op: d._modelMats.map((m) => +m.opacity.toFixed(2)), transparent: d._modelMats.every((m) => m.transparent), other: e._modelMats.map((m) => m.opacity) }; }`, 2);
+  chk("cloning a hull wrapped round a model keeps the hull collider and the model", r.cloneShape === 'hull' && r.cloneHullPts && r.cloneModel === 'crystal' && eq(r.sameSize, [1.6, 2.4, 1.6]), r);
+  chk("opacity reaches a model (and is that solid's own, not every solid's that uses the same file)", r.op.length > 0 && r.op.every((v) => v === 0.3) && r.transparent && r.other.every((v) => v === 1), r);
+
+  r = await result(String.raw`let back, front, phase = 0, got = {}; function setup() {
+      camera.pos = [0, 1, 10]; camera.lookAt(0, 1, 0);
+      back = new Cube(0, 1, 0, 2, 2, 2, 'static'); front = new Cube(0, 1, 3, 2, 2, 2, 'static'); front.visible = false; }
+      function update() {
+        if (frameCount === 10) { mouse.x = width / 2; mouse.y = height / 2; got.pick = world.getSolidAt(width / 2, height / 2) === back; got.enter = [back.mouse.hovers(), back.mouse.hovered()]; }
+        if (frameCount === 11) { got.still = [back.mouse.hovers(), back.mouse.hovered()]; }
+        if (frameCount === 12) { mouse.x = -50; mouse.y = -50; got.exitAskedHoversFirst = [back.mouse.hovers(), back.mouse.hovered()]; got.exitAgain = [back.mouse.hovers(), back.mouse.hovered()]; window.__r = got; } }`, 14);
+  chk("picking skips an invisible solid in front (the pointer is on what you can see)", r.pick === true, r);
+  chk("hovers() and hovered() agree whichever is asked first, and an enter/exit is seen once per tick", eq(r.enter, [true, false]) && eq(r.still, [false, false]) && eq(r.exitAskedHoversFirst, [false, true]) && eq(r.exitAgain, [false, true]), r);
+
+  r = await result(String.raw`function setup() { storeItem('__proto__', 7); storeItem('score', 9); window.__r = { proto: getItem('__proto__'), score: getItem('score') }; }`, 2);
+  chk("a saved value named __proto__ is just a value (it used to vanish)", eq(r, { proto: 7, score: 9 }), r);
+  r = await result(String.raw`function setup() { window.__r = { proto: getItem('__proto__'), score: getItem('score') }; }`, 2);
+  chk("and it is still there in the next Run, through the host", eq(r, { proto: 7, score: 9 }), r);
+
+  section("council round 2 (Opus): what a game does every day");
+  r = await result(String.raw`let p, g = []; function setup() { world.gravity.y = -10; new Floor(); p = new Cube(0, 6, 0, 1); p.lockRotation = true; p.friction = 0; }
+      const grounded = () => !!world.rayCast(p.pos, [p.x, p.y - 0.6, p.z]);
+      function update() { if (frameCount === 2) g.push(['airborne', grounded()]); if (frameCount === 150) { g.push(['landed', grounded()]); window.__r = g; } }`, 152);
+  chk("the 'am I on the ground?' ray from the player's own centre is false in mid-air and true on the floor (it used to be true always: you could jump in the air)", eq(r, [['airborne', false], ['landed', true]]), r);
+
+  r = await result(String.raw`let s, fl, hits = [], t; function setup() { world.gravity.y = -10; fl = new Floor(); s = new Cube(0, 3, 0, 1); s.bounciness = 0; }
+      function update() { s.collides(fl, (self, other, hit) => { if (!hits.length) hits.push({ speed: +hit.speed.toFixed(3), ny: +hit.normal.y.toFixed(2), py: +hit.point.y.toFixed(2), other: other === fl }); }); fl.collides(s, (self, other, hit) => { if (hits.length === 1) hits.push({ fromFloorNy: +hit.normal.y.toFixed(2) }); });
+        if (frameCount === 90) { const ignoring = world.rayCast(0, 5, 0, 0, -5, 0, { ignore: s }); const plain = world.rayCast(0, 5, 0, 0, -5, 0); const bare = world.rayCast([0, 5, 0], [0, -5, 0], s), bareAll = world.rayCastAll([0, 5, 0], [0, -5, 0], s); window.__r = { hits, ignoreHitsFloor: ignoring && ignoring.solid === fl, plainHitsCube: plain && plain.solid === s, bareSkipsShooter: bare && bare.solid === fl && bareAll.every((h) => h.solid !== s) }; } }`, 92);
+  chk("a collision callback gets the impact: speed (units per frame), a normal from the solid you asked toward the other, and the point",
+    r.hits.length >= 2 && Math.abs(r.hits[0].speed - 0.118) < 0.02 && r.hits[0].ny < -0.9 && r.hits[0].other === true && Math.abs(r.hits[0].py) < 0.1 && r.hits[1].fromFloorNy > 0.9, r);
+  chk("a ray can ignore the solid in its way ({ ignore: solid })", r.ignoreHitsFloor === true && r.plainHitsCube === true, r);
+  chk("world.rayCast(from, to, shooter) with the shooter written bare skips it too (it used to be silently ignored)", r.bareSkipsShooter === true, r);
+
+  // council round 3 (Sol): collider changes, new walls, clones of reshaped solids, group defaults, constructors that fail
+  r = await result(String.raw`function setup() {
+        world.autoStep = false; const step = (n) => { for (let i = 0; i < n; i++) world.physicsUpdate(); }; const out = {};
+        const floor = new Floor(); const sleeper = new Cube(0, 0.5, 0); world.gravity.y = -10; step(200);
+        const wall = new Cube(0.3, 1.5, 0, 1, 3, 3, 'static'); step(30); out.newWall = { moved: Math.abs(sleeper.x) > 0.4, awake: !sleeper.sleeping };
+        wall.remove(); step(200);
+        sleeper.collider = 'static'; sleeper.pos.y = 5; step(120); out.becameStatic = { touching: sleeper.colliding(floor), y: sleeper.y };
+        const zone = new Cube(0, -0.7, 0, 1, 'none'); step(1); zone.collider = 'dynamic'; step(1);
+        let hasHit = false; zone.colliding(floor, (a, b, hit) => { hasHit = !!hit; }); out.sensorToSolid = { collides: zone.collides(floor), impact: hasHit };
+        const moved = new Cube(7, 5, 0, 1, 'static'); moved.shape = 'sphere'; moved.metalness = 0.7; moved.roughness = 0.1; const cl = moved.clone(); cl.x = 9;
+        out.clone = { shape: cl.shape, m: cl.metalness, r: cl.roughness, boxCorner: world.rayCast([9.4, 6, 0.4], [9.4, 4, 0.4])?.solid === cl };
+        const before = allSolids.amount; try { new Hull(0, 0, 0, [[0,0,0],[1,0,0],[0,1,0],[]]); } catch (e) {} try { new TriangleMesh(0, 0, 0, [[0,0,0],[1,0,0],[0,1,0]], [[0,1,2]], 'bouncy'); } catch (e) {} out.leftOver = allSolids.amount - before;
+        const g = new Group(); g.mass = 3; g.density = 2; g.mass = 3; out.groupMass = +g.newSolid(15, 0, 0).mass.toFixed(2);
+        const flat = new TriangleMesh(30, 5, 0, [[0,0,0],[1,0,0],[0,0,1]], [[0,1,2]]); window.__flatOk = flat.h;
+        window.__r = out; world.gravity.y = 0;
+      }`, 2);
+  chk("a wall built through a sleeper wakes and pushes it", r.newWall.moved && r.newWall.awake, r.newWall);
+  chk("a solid turned static and moved away no longer counts as touching the floor", r.becameStatic.touching === 0 && r.becameStatic.y === 5, r.becameStatic);
+  chk("a sensor turned solid collides with what it overlapped, with an impact", r.sensorToSolid.collides === true && r.sensorToSolid.impact, r.sensorToSolid);
+  chk("a clone of a reshaped Cube is the same shape and material, not a fresh box", r.clone.shape === 'sphere' && r.clone.m === 0.7 && r.clone.r === 0.1 && r.clone.boxCorner === false, r.clone);
+  chk("a Hull or TriangleMesh that is refused leaves no solid behind", r.leftOver === 0, r.leftOver);
+  chk("a group's defaults replay in the order they were last set (mass, density, mass again = the mass)", r.groupMass === 3, r.groupMass);
+
+  // council round 3 (Opus): clones keep a changed shape, a visible 'none' solid can be pointed at
+  r = await result(String.raw`let coin, hid; function setup() {
+        world.gravity.y = 0; camera.pos = [0, 0, 10]; camera.lookAt(0, 0, 0);
+        new Cube(0, 0, 0, 2, 2, 2, 'static'); coin = new Sphere(0, 0, 3, 1, 'none');
+        const a = new Solid(5, 0, 0); a.shape = 'sphere'; const b = new Sphere(8, 0, 0); b.shape = 'box'; const t = new Solid(11, 0, 0); t.shape = 'torus';
+        window.__shapes = [a.clone().shape, b.clone().shape, t.clone().shape];
+      }
+      function update() { if (frameCount === 3) { const hit = world.getSolidAt(width / 2, height / 2); coin.visible = false; const through = world.getSolidAt(width / 2, height / 2); coin.visible = true; coin.opacity = 0; const clear = world.getSolidAt(width / 2, height / 2); window.__r = { shapes: window.__shapes, pickedCoin: hit === coin, hiddenSeenThrough: through !== coin && through !== undefined, clearSeenThrough: clear !== coin && clear !== undefined }; } }`, 5);
+  chk("a clone keeps a shape changed after it was made (Solid->sphere, Sphere->box, Solid->torus)", eq(r.shapes, ['sphere', 'box', 'torus']), r.shapes);
+  chk("the mouse can point at a visible 'none' solid (a coin, a button); hidden, it is looked through", r.pickedCoin === true && r.hiddenSeenThrough === true, r);
+  chk("a fully transparent solid is looked through by the mouse too", r.clearSeenThrough === true, r);
+
+  // council round 4 (Sol): clones keep size and mass, group mass order, live lock and scale parts, Group.amount, teleports
+  r = await result(String.raw`function setup() {
+        world.autoStep = false; const step = (n) => { for (let i = 0; i < n; i++) world.physicsUpdate(); }; world.gravity.y = 0; const out = {};
+        new Floor();
+        const sp = new Sphere(0, 5, 0); sp.shape = 'box'; sp.w = 2; sp.h = 1; sp.d = 3; const sc = sp.clone();
+        out.cloneBox = { size: [sc.w, sc.h, sc.d], mass: +sc.mass.toFixed(2), orig: +sp.mass.toFixed(2), shape: sc.shape };
+        const tor = new Torus(10, 5, 0); tor.shape = 'sphere'; out.cloneTorus = tor.clone().shape;
+        const stat = new Group(); stat.collider = 'static'; const m = stat.newSolid(20, 5, 0); m.collider = 'dynamic'; const mc = m.clone(); out.groupClone = { collider: mc.collider, inGroup: stat.includes(mc) };
+        const g = new Group(); const first = g.newSolid(30, 5, 0); g.collider = 'static'; g.mass = 8; g.collider = 'dynamic'; out.groupMass = [+first.mass.toFixed(2), +g.newSolid(32, 5, 0).mass.toFixed(2)];
+        const lk = new Cube(40, 5, 0); lk.lockPosition = { z: false }; lk.lockPosition.z = true; const lc = lk.clone(); lc.lockPosition.x = true;
+        lk.vel.z = 1; step(2); out.lock = { z: lk.lockPosition.z, zMoved: +Math.abs(lk.z).toFixed(3), cloneIndependent: lk.lockPosition.x === false && lc.lockPosition.x === true };
+        const ug = new Group(); const u = new Cube(50, 5, 0); ug.unshift(u); u.remove(); ug.amount = 0; out.unshift = ug.length;
+        const big = new Cube(60, 5, 0); big.scale.x = 3; out.scale = [big.scale.x, big._mesh.scale.x];
+        const cap = new Capsule(70, 5, 0, 2, 1, 2); out.capsule = cap.h;
+        const kin = new Cube(80, 5, 0, 'kinematic'); kin.moveTo(81, 5, 0); kin.x = 85; step(2); out.glide = +kin.x.toFixed(2);
+        out.floorClone = new Floor().clone().color === new Floor().color;
+        const wallsG = new Group(); wallsG.collider = 'static'; wallsG.allowSleeping = false; wallsG.maxSpeed = 0.2; const door = wallsG.newSolid(90, 5, 0); door.collider = 'dynamic'; door.allowSleeping = true; door.maxSpeed = Infinity; const dc = door.clone();
+        out.doorClone = [dc.collider, dc.allowSleeping, dc.maxSpeed === Infinity];
+        const kc = new Cube(95, 5, 0, 'kinematic'); kc.mass = 5; kc.collider = 'dynamic'; out.kinMass = +kc.mass.toFixed(2);
+        window.__r = out;
+      }`, 2);
+  chk("a Floor clone is the floor's colour; a group member's overrides survive cloning; mass set on a kinematic solid applies once it is dynamic", r.floorClone === true && eq(r.doorClone, ['dynamic', true, true]) && r.kinMass === 5, [r.floorClone, r.doorClone, r.kinMass]);
+  chk("a clone of a Sphere reshaped into a 2 x 1 x 3 box keeps the shape, size and mass", r.cloneBox.shape === 'box' && eq(r.cloneBox.size, [2, 1, 3]) && r.cloneBox.mass === r.cloneBox.orig && r.cloneBox.orig === 6, r.cloneBox);
+  chk("a Torus reshaped into a sphere clones without throwing", r.cloneTorus === 'sphere', r.cloneTorus);
+  chk("a group member that overrode the group's static default clones as dynamic, not as the group's default", r.groupClone.collider === 'dynamic', r.groupClone);
+  chk("group mass set while members were static still applies when they become dynamic (existing member and new ones agree)", eq(r.groupMass, [8, 8]), r.groupMass);
+  chk("lockPosition parts can be set one at a time (and a clone's lock is its own)", r.lock.z === true && r.lock.zMoved < 0.01 && r.lock.cloneIndependent === true, r.lock);
+  chk("Group.amount = 0 finishes even with an entry put in by unshift() that was already removed", r.unshift === 0, r.unshift);
+  chk("solid.scale.x = 3 changes the picture", eq(r.scale, [3, 3]), r.scale);
+  chk("a capsule is never shorter than it is wide", r.capsule >= 2, r.capsule);
+  chk("moveTo followed by a teleport the same frame ends at the teleport, not past it", r.glide === 85, r.glide);
+
+  // council round 5 (Sol): clones of reshaped floors and meshes, a flat mesh cannot become a box, picking skips scaled-to-nothing solids
+  r = await result(String.raw`let btn; function setup() {
+        world.gravity.y = 0; camera.pos = [0, 0, 10]; camera.lookAt(0, 0, 0); const out = {};
+        const fl = new Floor(); fl.shape = 'cylinder'; out.floorClone = fl.clone().shape;
+        const mesh = new TriangleMesh(5, 5, 0, [[0,0,0],[1,0,0],[0,0,1]], [[0,1,2]]);
+        try { mesh.shape = 'box'; out.flat = 'allowed'; } catch (e) { out.flat = 'refused'; } out.flatStill = mesh.shape;
+        const tall = new TriangleMesh(8, 5, 0, [[0,0,0],[1,0,0],[0,1,0]], [[0,1,2]]); tall.shape = 'sphere'; out.meshClone = tall.clone().shape;
+        new Cube(0, 0, 0, 2, 2, 2, 'static'); btn = new Cube(0, 0, 3, 1, 'none'); btn.scale = 0;
+        window.__out = out;
+      }
+      function update() { if (frameCount === 3) { window.__out.pickSkipsZeroScale = world.getSolidAt(width / 2, height / 2) !== btn && world.getSolidAt(width / 2, height / 2) !== undefined; window.__r = window.__out; } }`, 5);
+  chk("a Floor reshaped into a cylinder clones as a cylinder; a mesh reshaped into a sphere clones as a sphere", r.floorClone === 'cylinder' && r.meshClone === 'sphere', [r.floorClone, r.meshClone]);
+  chk("a FLAT triangle mesh cannot be turned into a box (no thickness): refused, and it stays a mesh", r.flat === 'refused' && r.flatStill === 'triangles', [r.flat, r.flatStill]);
+  chk("the mouse looks through a solid scaled to nothing", r.pickSkipsZeroScale === true, r);
+
+  // council round 5 (Opus): a student's own subclass clones, Group.remove() with nothing, a spinning platform still turns under moveTo
+  r = await result(String.raw`class Coin extends Sphere { constructor(x, z) { super(x, 1, z, 0.5, 'none'); } }
+      let sp, c, cl; function setup() {
+        world.gravity.y = 0; const coin = new Coin(3, 4); cl = coin.clone(); const g = new Group(); let removeNothing = 'ok'; try { g.remove(); } catch (e) { removeNothing = e.message; }
+        sp = new Cube(0, 5, 0, 2, 0.2, 2, 'kinematic'); sp.angularVelocity.y = 1.9099; // about 2 rad/s (degrees per frame)
+        window.__ex = { clonePos: [cl.x, cl.z], removeNothing };
+      }
+      function update() { sp.moveTo(sp.x + 0.01, 5, 0); if (frameCount === 60) window.__r = { ...window.__ex, turned: Math.abs(sp.rotation.y) }; }`, 62);
+  chk("a student's own subclass (its constructor takes x, z) clones at the same place", eq(r.clonePos, [3, 4]), r.clonePos);
+  chk("group.remove() with nothing to remove does nothing, not a TypeError", r.removeNothing === 'ok', r.removeNothing);
+  chk("a kinematic platform that is turning still turns while it moves with moveTo", r.turned > 50, r.turned);
+
+  r = await result(String.raw`let side, free, c; function setup() { world.gravity.y = 0; side = new Cube(0, 2, 0, 1); side.lockPosition = { z: true }; free = new Cube(5, 2, 0, 1);
+      side.vel = [0.05, 0, 0.05]; free.vel = [0.05, 0, 0.05]; side.lockRotation = true; side.mass = 7; side.allowSleeping = false; c = side.clone(); c.pos = [30, 2, 0]; c.vel = [0, 0, 0]; } // (a clone is made on top of its original: move it off)
+      function update() { if (frameCount === 60) window.__r = { sideZ: +side.z.toFixed(3), sideX: +side.x.toFixed(2), freeZ: +free.z.toFixed(2), clone: [!!c.lockRotation, JSON.stringify(c.lockPosition), c.allowSleeping, +c.mass.toFixed(2)] }; }`, 62);
+  chk("lockPosition { z: true } keeps a side-scroller in its plane while it still moves along x; a clone keeps lockRotation, lockPosition, allowSleeping and a set mass",
+    r.sideZ === 0 && r.sideX > 2 && r.freeZ > 2 && eq(r.clone, [true, '{"x":false,"y":false,"z":true}', false, 7]), r);
+
+  section("council round 2 (Sol): the edges of the round-1 fixes");
+  r = await result(GLB_JS + String.raw`
+      function preload() { registerModel('crystal', makeGlb(crystal())); loadModel('crystal'); }
+      function setup() {
+        const a = new Cube(0, 2, 0, 1.6, 2.4, 1.6); a.model = 'crystal'; a.shape = 'hull'; const c = a.clone();
+        let disposed = 0; for (const m of a._modelMats) m.addEventListener('dispose', () => disposed++); const mats = a._modelMats.length; a.remove();
+        const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+        const bad = new Group(); bad.texture = 'nope'; const groups0 = __spashial.groups.size; const e1 = t(() => new Tiles([['##']], 0, 0, 0, 1, { '#': bad })); const groupsLeft = __spashial.groups.size - groups0 - 0;
+        window.__r = { cloneShape: c.shape, cloneIsCube: c instanceof Cube, mats, disposed, longKey: t(() => storeItem('x'.repeat(201), 1)), okKey: t(() => storeItem('x'.repeat(200), 1)), e1, groupsLeft }; }`, 2);
+  chk("a Cube wrapped round a model keeps its hull collider when cloned, and removing it releases the model's materials", r.cloneShape === 'hull' && r.mats > 0 && r.disposed === r.mats, r);
+  chk("a saved name the host would refuse (over 200 characters) is refused HERE, visibly, not lost on the next Run", r.longKey.includes('name is too long') && r.okKey === '', r);
+  chk("a failed Tiles level leaves no empty group registered", r.e1.startsWith('TypeError') && r.groupsLeft === 0, r);
+
+  r = await result(String.raw`let back, got = []; function setup() { camera.pos = [0, 1, 10]; camera.lookAt(0, 1, 0); back = new Cube(0, 1, 0, 2, 2, 2, 'static'); world.autoStep = false; }
+      function draw() { const n = __spashial.frames;
+        if (n === 8) { mouse.x = width / 2; mouse.y = height / 2; }
+        if (n === 9) got.push(['in', back.mouse.hovers(), back.mouse.hovers()]);
+        if (n === 10) { mouse.x = -50; mouse.y = -50; got.push(['out', back.mouse.hovered(), back.mouse.hovers()]); }
+        if (n === 11) { got.push(['after', back.mouse.hovered()]); window.__r = got; } }`, 3);
+  chk("hover is read once per DRAWN frame too (with autoStep off): enter, exit, then nothing", eq(r, [['in', true, true], ['out', true, false], ['after', false]]), r);
 
   section("Tiles (a level from text)");
   r = await result(String.raw`function setup() {

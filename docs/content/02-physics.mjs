@@ -483,7 +483,7 @@ function drawTop() {
       { list: [
         'Use **collides** to react to a hit once: a sound, a point, a crack.',
         'Use **overlaps** for zones. A `collider = \'none\'` solid is a sensor: nothing bounces off it but it still tells you who is inside.',
-        'Every verb takes a Solid **or a Group**, and an optional callback `(self, other) => ...` that runs for each pair that matched.',
+        'Every verb takes a Solid **or a Group**, and an optional callback `(self, other, hit) => ...` that runs for each pair that matched. `hit` is described below.',
       ] },
       { demo: {
         id: 'touch-counters', title: 'All the verbs on one falling box',
@@ -542,6 +542,38 @@ function drawTop() {
 `,
         steps: [{ down: 'd' }, { wait: 160 }, { up: 'd' }],
         expect: () => score >= 3,
+      } },
+      { h: 'How hard was the hit?' },
+      'The callback of `collides`, `colliding` and `collided` gets a third argument, `hit`, measured at the place they touched on the first frame of the contact. It has three parts, and a `\'none\'` overlap has none.',
+      { table: { head: ['Part', 'Meaning'], rows: [
+        ['`hit.point`', 'Where they touched, as a vector.'],
+        ['`hit.normal`', 'Length 1, pointing from the solid you asked toward the other one.'],
+        ['`hit.speed`', 'How fast they were closing along the normal, in units per frame like `vel`. A hard landing is a big number.'],
+      ] } },
+      { demo: {
+        id: 'impact', title: 'A hard landing turns gold',
+        code: `let box, floor, landing = null;
+function setup() {
+  world.gravity.y = -10;
+  floor = new Floor();
+  box = new Cube(0, 5, 0);
+  box.color = 'tomato';
+  camera.pos = [0, 4, 12];
+  camera.lookAt(0, 1, 0);
+}
+function update() {
+  box.collides(floor, (b, f, hit) => {
+    landing = { speed: hit.speed, up: Math.abs(hit.normal.y) };
+    if (hit.speed > 0.08) b.color = 'gold';          // a hard hit
+  });
+}
+function drawTop() {
+  fill('white'); textSize(16);
+  text(landing ? 'landed at speed ' + landing.speed.toFixed(3) : 'falling...', 12, 12);
+}
+`,
+        steps: [{ wait: 120 }],
+        expect: () => landing !== null && landing.speed > 0.08 && landing.up > 0.9 && box.color === 'gold',
       } },
       { demo: { id: 'touch-zone', title: 'A zone that colours what is inside', from: 'touch-verbs', expect: () => balls.length === 12 } },
       { note: 'A Group answers "yes" if **any** member does, and a count verb answers with the longest count among its members.' },

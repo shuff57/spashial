@@ -118,7 +118,7 @@ async function getSketch() {
 		init = await askHost(400);
 		code = init && typeof init.code === 'string' ? init.code : null;
 	}
-	window.__spashialStorage = init && init.data && typeof init.data === 'object' ? init.data : {};
+	window.__spashialStorage = Object.assign(Object.create(null), init && init.data && typeof init.data === 'object' ? init.data : {}); // no prototype: a key called __proto__ is just a name
 	return code;
 }
 (async function () {

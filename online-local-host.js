@@ -20,6 +20,7 @@
 // computer cannot join), so this is for trying a game out, a classroom demo on one machine, and
 // tests: the real classroom path is /api/rooms and the live Durable Object.
 //
+// (The files named below, lib/ and functions/, are in the shCode repository, not in a standalone copy of this one.)
 // The rules are the server's, ported rather than imported (this file must run as plain JS on a page
 // with no build): functions/_shared/rooms.ts (2-4 seats, the host is seat 0, a code is 4 picture
 // letters, 30 moves per 10 s per seat, 3000 moves, 3-hour rooms), lib/game-data.ts (checkGameData),

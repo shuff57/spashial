@@ -544,5 +544,530 @@ const pivotAt = (w, p) => w.createBody({ shape: 'box', w: 0.2, h: 0.2, d: 0.2, c
   ok(bounce(0) > bounce(1) + 0.01, 'minBounceSpeed 0 lets a tiny drop bounce; the default does not');
 }
 
+// ============================ council review fixes (a refused change never breaks a live body) ============================
+// 25. a refused collision group changes nothing, and the body can still be resized afterwards
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const b = ball(w, { group: 'first' });
+  for (let i = 0; i < 31; i++) w.ignoreCollisions('g' + i); // 'first' + 31 more fills the 32 slots
+  let msg = ''; try { w.setGroup(b, 'one-too-many'); } catch (e) { msg = e.message; }
+  ok(/at most 32 collision groups/.test(msg), 'a 33rd group name is refused', msg);
+  ok(b.def.group === 'first', 'and the body keeps the group it had (the refused name is not stored)', String(b.def.group));
+  let after = ''; try { w.rebuild(b, { w: 1, h: 1, d: 1 }); } catch (e) { after = e.message; }
+  ok(after === '' && b.body !== null && w.isAlive(b), 'so a later resize still works', after);
+  w.dispose();
+}
+
+// 25b. resizing the ONLY body in a group keeps working (Jolt deletes a group filter nobody holds)
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const floor = w.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const b = ball(w, { group: 'solo', pos: [0, 2, 0] });
+  w.setGroup(floor, 'solo'); // the group of two: the ball and the floor
+  for (let i = 0; i < 5; i++) w.rebuild(b, { w: 0.5 + i * 0.1, h: 0.5 + i * 0.1, d: 0.5 + i * 0.1 }); // while the floor also holds the group
+  w.ignoreCollisions('solo'); run(w, 120);
+  ok(w.getPose(b).pos[1] < -1, 'a group still works after its grouped bodies were rebuilt five times (it lets the ball through the floor)');
+  w.dispose();
+  const w2 = createPhysics(J, { gravity: [0, 0, 0] });
+  ok(w2.createBody({ shape: 'box', collider: 'dynamic', group: 'x' }).alive, 'and the next world is fine (no freed filter left behind)');
+  w2.dispose();
+}
+
+// 26. a rebuild Jolt refuses leaves the old body, with its joints, exactly as it was
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const v = [[-10, 0, -10], [10, 0, -10], [10, 0, 10], [-10, 0, 10]], t = [[0, 2, 1], [0, 3, 2]];
+  const floor = w.createBody({ shape: 'triangles', vertices: v, triangles: t, collider: 'static' });
+  let msg = ''; try { w.rebuild(floor, { vertices: [[0, 0, 0], [1, 0, 0], [2, 0, 0]], triangles: [[0, 1, 2]] }); } catch (e) { msg = e.message; }
+  ok(msg !== '', 'a triangle mesh Jolt cannot make is refused', msg);
+  ok(floor.body !== null && w.isAlive(floor) && w.rayCast([3, 5, 1], [3, -5, 1])?.rec === floor, 'and the floor is still a floor afterwards');
+  const pin = pivotAt(w, [0, 5, 0]), arm = ball(w, { pos: [2, 5, 0] });
+  w.createJoint({ kind: 'ball', a: pin, b: arm, anchor: [0, 5, 0] });
+  try { w.rebuild(arm, { shape: 'hull', points: [[0, 0, 0], [1, 0, 0]] }); } catch { /* refused */ }
+  ok(arm.body !== null && w.jointCount === 1, 'a refused rebuild keeps the body and its joint');
+  run(w, 60); ok(Math.abs(dist(w.getPose(arm).pos, [0, 5, 0]) - 2) < 0.1, 'and the joint still holds');
+  w.dispose();
+}
+
+// 27. resizing a jointed body keeps the joint's zero: the limits still count from where it was made
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const pin = pivotAt(w, [0, 5, 0]), arm = ball(w, { pos: [2, 5, 0], drag: 0, rotationDrag: 0 });
+  const j = w.createJoint({ kind: 'hinge', a: pin, b: arm, anchor: [0, 5, 0], axis: [0, 0, 1], lower: -0.3, upper: 0.3 });
+  run(w, 180);
+  const before = w.jointValue(j);
+  near(before, -0.3, 0.06, 'the arm rests on its lower limit');
+  w.rebuild(arm, { w: 0.8, h: 0.8, d: 0.8 });
+  near(w.jointValue(j), before, 0.05, 'resizing it does not change the angle the joint reports');
+  run(w, 180);
+  near(w.jointValue(j), -0.3, 0.06, 'and the lower limit still stops it at the ORIGINAL -0.3, not 0.3 further round');
+  ok(w.getPose(arm).pos[1] > 4.3, 'the arm did not drop past its limit');
+  w.dispose();
+
+  const w2 = createPhysics(J, { gravity: [0, 0, 0] });
+  const base = pivotAt(w2, [0, 3, 0]), car = w2.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 3, 0] });
+  const js = w2.createJoint({ kind: 'slider', a: base, b: car, axis: [1, 0, 0], lower: -1, upper: 1.5 });
+  w2.setPose(car, [1, 3, 0], [0, 0, 0, 1]); run(w2, 5);
+  w2.rebuild(car, { w: 1.4, h: 1, d: 1 });
+  near(w2.jointValue(js), 1, 0.1, 'a slider keeps its position reading after a resize');
+  w2.addImpulse(car, [10, 0, 0]); run(w2, 120);
+  near(w2.jointValue(js), 1.5, 0.08, 'and its upper limit is still 1.5 from where it was made');
+  w2.dispose();
+}
+
+// 28. removing a body lets go of its shape (Jolt reference counts are by hand)
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const pyramid = [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5], [0, 1, 0]];
+  const makers = {
+    box: () => w.createBody({ shape: 'box', collider: 'dynamic' }),
+    sphere: () => w.createBody({ shape: 'sphere', collider: 'dynamic' }),
+    cone: () => w.createBody({ shape: 'cone', collider: 'dynamic' }),
+    torus: () => w.createBody({ shape: 'torus', w: 1.2, h: 0.4, d: 1, collider: 'dynamic' }),
+    hull: () => w.createBody({ shape: 'hull', points: pyramid, collider: 'dynamic' }),
+    triangles: () => w.createBody({ shape: 'triangles', vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], triangles: [[0, 1, 2]], collider: 'static' }),
+  };
+  for (const [name, make] of Object.entries(makers)) {
+    const b = make(), shape = b.body.GetShape();
+    shape.AddRef(); w.removeBody(b);
+    const n = shape.GetRefCount(); shape.Release();
+    ok(n === 1, `a removed ${name} leaves no reference to its shape behind (only ours)`, `refs ${n}`);
+  }
+  const b = w.createBody({ shape: 'hull', points: pyramid, collider: 'dynamic' }), shape = b.body.GetShape();
+  shape.AddRef(); w.rebuild(b, { friction: 0.2 }); const sh2 = b.body.GetShape(); const n = shape.GetRefCount(); shape.Release();
+  ok(n === 1 && sh2 !== shape, 'a rebuild lets go of the old shape too', `refs ${n}`);
+  w.dispose();
+}
+
+// ============================ council round 2 (Opus): what a game does every day ============================
+// 29. groups: the last member can go, or change group, and the next step must not touch freed memory
+{
+  const mkWorld = () => { const w = createPhysics(J, { gravity: [0, 0, 0] }); return w; };
+  const w = mkWorld();
+  const only = ball(w, { group: 'ghost', pos: [0, 0, 0] });
+  w.removeBody(only);
+  const a = ball(w, { group: 'ghost', pos: [0, 0, 0] }), b = ball(w, { group: 'ghost', pos: [0.2, 0, 0] });
+  w.ignoreCollisions('ghost'); run(w, 10);
+  ok(w.isAlive(a) && w.isAlive(b), 'remove the only grouped body, make two more, step: no crash');
+  const c = ball(w, { group: 'p', pos: [5, 0, 0] });
+  w.setGroup(c, null); w.setGroup(c, 'p'); run(w, 5);
+  ok(w.isAlive(c), 'leave a group and come back, then step: no crash');
+  w.dispose();
+}
+
+// 30. a sleeper must notice that what it rests on has gone, moved or shrunk
+{
+  const resting = (act) => {
+    const w = createPhysics(J, { gravity: [0, -10, 0] });
+    const plat = w.createBody({ shape: 'box', w: 4, h: 0.5, d: 4, collider: 'static', pos: [0, 5, 0] });
+    const box = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [1.5, 5.75, 0], friction: 0.6 }); // near the platform's edge
+    run(w, 180);
+    const asleep = w.isAsleep(box), y0 = w.getPose(box).pos[1];
+    act(w, plat); run(w, 90);
+    const y1 = w.getPose(box).pos[1]; w.dispose();
+    return { asleep, y0, y1 };
+  };
+  const rm = resting((w, p) => w.removeBody(p));
+  ok(rm.asleep && rm.y0 > 5.6 && rm.y1 < 3, 'a sleeping box falls when its platform is REMOVED', JSON.stringify(rm));
+  const mv = resting((w, p) => w.setPose(p, [20, 5, 0], [0, 0, 0, 1]));
+  ok(mv.y1 < 3, 'a sleeping box falls when its platform is MOVED away', JSON.stringify(mv));
+  const sh = resting((w, p) => w.rebuild(p, { w: 1, h: 0.5, d: 4 })); // the platform no longer reaches under the box
+  ok(sh.asleep && sh.y1 < 3, 'a sleeping box falls when its platform shrinks from under it', JSON.stringify(sh));
+}
+
+// 31. a removed record is inert: its id must not reach the NEXT body
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const a = ball(w, { pos: [0, 0, 0] });
+  w.removeBody(a);
+  const b = ball(w, { pos: [5, 0, 0] });
+  w.addImpulse(a, [0, 100, 0]); w.addForce(a, [0, 100, 0]); w.setVelocity(a, [0, 9, 0]); w.setPose(a, [9, 9, 9], [0, 0, 0, 1]); w.addTorque(a, [0, 9, 0]);
+  run(w, 5);
+  near(w.getVelocity(b)[1], 0, 1e-6, 'pushing a REMOVED record does not push the body that took its place');
+  near(w.getPose(b).pos[0], 5, 1e-6, 'nor move it');
+  ok(throws(() => { w.getPose(a); w.getVelocity(a); w.isAwake(a); w.isAsleep(a); w.massOf(a); w.centerOfMass(a); w.touchingAll(a); }) === '', 'reading a removed record does not throw (it answers with what it was)');
+  w.dispose();
+}
+
+// 32. the ground ray: from inside the player it must not hit the player; a ray can ignore a body
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const cap = w.createBody({ shape: 'capsule', w: 1, h: 2, d: 1, collider: 'dynamic', pos: [0, 10, 0] });
+  ok(w.rayCast([0, 10, 0], [0, 8.9, 0]) === null, 'a ray that starts INSIDE a body does not hit it (mid-air "on the ground?" is false)');
+  const floor = w.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  w.setPose(cap, [0, 1, 0], [0, 0, 0, 1]);
+  const down = w.rayCast([0, 1, 0], [0, -0.2, 0]);
+  ok(down?.rec === floor && Math.abs(down.point[1]) < 1e-6, 'standing on the floor the same ray hits the FLOOR');
+  const through = w.rayCast([0, 5, 0], [0, -1, 0]);
+  ok(through?.rec === cap, 'a ray from outside still hits the body in its way');
+  ok(w.rayCast([0, 5, 0], [0, -1, 0], cap)?.rec === floor, 'unless it is told to ignore that body');
+  ok(w.rayCast([0, 5, 0], [0, -1, 0], [cap, floor]) === null, 'a list of bodies to ignore works too');
+  ok(w.rayCastAll([0, 5, 0], [0, -1, 0], cap).length === 1, 'rayCastAll takes the same ignore list');
+  w.dispose();
+}
+
+// 33. rayCastAll reports each body once
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const tor = w.createBody({ shape: 'torus', w: 4, h: 1, d: 4, collider: 'static', pos: [0, 0, 0] });
+  const all = w.rayCastAll([-5, 0, 0], [5, 0, 0]);
+  ok(all.length === 1 && all[0].rec === tor, 'a ray through a torus reports the torus once (it used to be four times)', String(all.length));
+  w.dispose();
+}
+
+// 34. two 'none' solids see each other (a pickup zone and a peer's ghost)
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const z = w.createBody({ shape: 'box', w: 2, h: 2, d: 2, collider: 'none', pos: [0, 0, 0] }), g = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'none', pos: [0.5, 0, 0] });
+  run(w, 3);
+  const t = w.touching(z, g);
+  ok(t && !t.physical, 'two sensors overlap, and it is an overlap, not a collision', JSON.stringify(t));
+  w.dispose();
+}
+
+// 35. contact details: where, which way and how hard
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const floor = w.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const b = ball(w, { pos: [0, 5, 0], friction: 0.5 });
+  let hit = null, from = null;
+  for (let i = 0; i < 120 && !hit; i++) { w.step(); const t = w.touching(b, floor); if (t && t.began && t.physical) { hit = t.hit; from = w.touching(floor, b).hit; } }
+  ok(hit != null, 'the first frame of a collision carries the impact');
+  near(hit.speed, Math.sqrt(2 * 10 * 4.75), 1.2, 'its speed is how fast they were closing (about 9.7 m/s after a 4.75 m fall)');
+  near(hit.normal[1], -1, 0.05, 'seen from the ball the normal points DOWN, toward the floor');
+  near(from.normal[1], 1, 0.05, 'and seen from the floor it points UP, toward the ball');
+  near(hit.point[1], 0, 0.05, 'the point is on the floor surface');
+  run(w, 5);
+  ok(w.touching(b, floor).hit?.speed === hit.speed, 'the impact is kept while they stay in contact');
+  const s = w.createBody({ shape: 'box', w: 2, h: 2, d: 2, collider: 'none', pos: [8, 1, 0] }), b2 = ball(w, { pos: [8, 1, 0] });
+  run(w, 3);
+  ok(w.touching(s, b2) && w.touching(s, b2).hit === null, 'a sensor overlap has no impact');
+  w.dispose();
+}
+
+// 36. lockPosition: a side-scroller keeps its z
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const lock = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0, 0], lockPosition: { z: true } });
+  const free = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 5, 0] });
+  w.setVelocity(lock, [1, 0, 3]); w.setVelocity(free, [1, 0, 3]); run(w, 60);
+  near(w.getPose(lock).pos[2], 0, 1e-6, 'lockPosition { z: true }: it never leaves its plane');
+  ok(w.getPose(lock).pos[0] > 0.8, 'and still moves along x');
+  ok(w.getPose(free).pos[2] > 2, 'an unlocked body moves in z');
+  w.rebuild(lock, { lockPosition: false }); w.setVelocity(lock, [0, 0, 3]); run(w, 30);
+  ok(w.getPose(lock).pos[2] > 1, 'and the lock can be taken off again');
+  w.dispose();
+}
+
+// 37. density (a rebuild) keeps a hinge's zero as well
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const pin = pivotAt(w, [0, 5, 0]), arm = ball(w, { pos: [2, 5, 0], drag: 0, rotationDrag: 0 });
+  const j = w.createJoint({ kind: 'hinge', a: pin, b: arm, anchor: [0, 5, 0], axis: [0, 0, 1], lower: -1, upper: 1 });
+  run(w, 20);
+  const before = w.jointValue(j);
+  w.rebuild(arm, { density: 2, mass: null });
+  near(w.jointValue(j), before, 0.05, 'changing the density (which rebuilds the body) leaves the joint angle alone');
+  w.dispose();
+}
+
+// 38. council round 2 (Sol): an impact is measured AT the contact point, and belongs to one physical contact
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const bar = w.createBody({ shape: 'box', w: 4, h: 0.2, d: 0.2, collider: 'dynamic', pos: [0, 0, 0], angVel: [0, 0, 4] });
+  const wall = w.createBody({ shape: 'box', w: 1, h: 0.2, d: 1, collider: 'static', pos: [1.8, 0.45, 0] });
+  let hit = null;
+  for (let i = 0; i < 120 && !hit; i++) { w.step(); const t = w.touching(bar, wall); if (t && t.began && t.physical) hit = t.hit; }
+  ok(hit != null && hit.speed > 2, 'a spinning bar with NO linear speed still hits hard (speed taken at the contact point)', hit && String(hit.speed));
+  w.dispose();
+
+  const w2 = createPhysics(J, { gravity: [0, -10, 0] });
+  const floor = w2.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const b = ball(w2, { pos: [0, 1, 0] });
+  let seen = null;
+  for (let i = 0; i < 90 && !seen; i++) { w2.step(); const t = w2.touching(b, floor); if (t && t.hit) seen = t.hit; }
+  ok(seen != null, 'a collision carries an impact');
+  w2.rebuild(b, { collider: 'none' }); run(w2, 3);
+  const after = w2.touching(b, floor);
+  ok(after && !after.physical && after.hit === null, 'turned into a sensor, the same pair reports an overlap with NO stale impact', JSON.stringify(after));
+  w2.dispose();
+}
+
+// 39. council round 2 (Opus): moving or growing a STATIC body into a sleeper wakes it; mass of a position-locked solid; contact point
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  w.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const sleeper = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  const wall = w.createBody({ shape: 'box', w: 1, h: 3, d: 3, collider: 'static', pos: [-6, 1.5, 0] });
+  run(w, 200);
+  ok(!w.isAwake(sleeper), 'the box fell asleep on the floor');
+  w.setPose(wall, [0, 1.5, 0], [0, 0, 0, 1]); run(w, 30);
+  ok(w.getPose(sleeper).pos[0] < -0.5 || w.getPose(sleeper).pos[0] > 0.5, 'a static wall teleported INTO a sleeper pushes it out', String(w.getPose(sleeper).pos[0]));
+  w.dispose();
+
+  const w2 = createPhysics(J, { gravity: [0, -10, 0] });
+  w2.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const s2 = w2.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [2, 0.5, 0], friction: 0.6 });
+  const post = w2.createBody({ shape: 'box', w: 1, h: 3, d: 1, collider: 'static', pos: [0, 1.5, 0] });
+  run(w2, 200);
+  ok(!w2.isAwake(s2), 'the second box fell asleep too');
+  w2.rebuild(post, { w: 4 }); run(w2, 30);
+  ok(w2.getPose(s2).pos[0] > 2.4, 'a static post grown INTO a sleeper pushes it away', String(w2.getPose(s2).pos[0]));
+  w2.dispose();
+
+  const w3 = createPhysics(J, { gravity: [0, 0, 0] });
+  const a = w3.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0, 0], lockPosition: true, mass: 3 });
+  const b = w3.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [5, 0, 0], lockPosition: true });
+  near(w3.massOf(a), 3, 1e-6, 'a position-locked solid still reports its mass (set by hand)');
+  near(w3.massOf(b), 1 * w3.massOf(w3.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [9, 0, 0] })), 1e-6, 'and from its density when none is set');
+  w3.dispose();
+
+  const hitFrom = (floorFirst) => {
+    const w4 = createPhysics(J, { gravity: [0, -10, 0] });
+    let fl, bl;
+    if (floorFirst) { fl = w4.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] }); bl = ball(w4, { pos: [0, 1.2, 0] }); }
+    else { bl = ball(w4, { pos: [0, 1.2, 0] }); fl = w4.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] }); }
+    let hit = null;
+    for (let i = 0; i < 90 && !hit; i++) { w4.step(); const t = w4.touching(bl, fl); if (t && t.hit) hit = t.hit; }
+    w4.dispose();
+    return hit;
+  };
+  const h1 = hitFrom(true), h2 = hitFrom(false);
+  ok(h1 && h2 && Math.abs(h1.point[1] - h2.point[1]) < 1e-6, 'the impact point does not depend on which body was made first', `${h1 && h1.point[1]} vs ${h2 && h2.point[1]}`);
+}
+
+// 40. council round 3 (Sol): new walls, collider changes, kinematic contacts, a tightened slider
+{
+  // a wall BUILT through a sleeper pushes it out
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  w.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const sleeper = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  run(w, 200);
+  ok(!w.isAwake(sleeper), 'the box fell asleep');
+  w.createBody({ shape: 'box', w: 1, h: 3, d: 3, collider: 'static', pos: [0, 1.5, 0] }); run(w, 30);
+  ok(Math.abs(w.getPose(sleeper).pos[0]) > 0.5, 'a static wall created THROUGH a sleeper pushes it out', String(w.getPose(sleeper).pos[0]));
+  w.dispose();
+
+  // a resting pair where one becomes static and leaves: the contact ends instead of counting for ever
+  const w2 = createPhysics(J, { gravity: [0, -10, 0] });
+  const fl = w2.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const c = w2.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  run(w2, 200);
+  ok(w2.touching(c, fl) != null, 'a resting cube touches the floor');
+  w2.rebuild(c, { collider: 'static' }); w2.setPose(c, [0, 5, 0], [0, 0, 0, 1]); run(w2, 10);
+  const t = w2.touching(c, fl);
+  ok(t == null || t.ended, 'a cube turned static and moved away no longer touches the floor', JSON.stringify(t));
+  w2.dispose();
+
+  // an overlap that becomes a collision is a NEW physical contact with an impact
+  const w3 = createPhysics(J, { gravity: [0, 0, 0] });
+  const fl3 = w3.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0] });
+  const s3 = w3.createBody({ shape: 'sphere', w: 1, collider: 'none', pos: [0, 0.3, 0], vel: [0, -2, 0] });
+  run(w3, 5);
+  ok(w3.touching(s3, fl3) && !w3.touching(s3, fl3).physical, 'a sensor overlapping the floor reports an overlap');
+  w3.rebuild(s3, { collider: 'dynamic' });
+  let got = null; for (let i = 0; i < 10 && !got; i++) { w3.step(); const t3 = w3.touching(s3, fl3); if (t3 && t3.physical && t3.began) got = t3; }
+  ok(got != null && got.hit != null, 'turned into a solid, the same pair begins a PHYSICAL contact with an impact', JSON.stringify(got));
+  w3.dispose();
+
+  // kinematic bodies touch static walls and other kinematic bodies
+  const w4 = createPhysics(J, { gravity: [0, 0, 0] });
+  const gl = w4.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'kinematic', pos: [0, 1, 0] });
+  const wall = w4.createBody({ shape: 'box', w: 1, h: 3, d: 3, collider: 'static', pos: [3, 1, 0] });
+  let seenWall = false;
+  for (let i = 0; i < 120; i++) { w4.moveKinematic(gl, [Math.min(i, 60) * 0.05, 1, 0]); w4.step(); if (w4.touching(gl, wall)) seenWall = true; }
+  ok(seenWall, 'a kinematic solid touches a static wall');
+  const w5 = createPhysics(J, { gravity: [0, 0, 0] });
+  const k1 = w5.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'kinematic', pos: [0, 1, 0] });
+  const k2 = w5.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'kinematic', pos: [0.6, 1, 0] });
+  run(w5, 3);
+  ok(w5.touching(k1, k2) != null, 'two kinematic solids touch each other');
+  w4.dispose(); w5.dispose();
+
+  // a slider rebuilt (mass change) keeps its ORIGINAL zero: a limit tightened afterwards pulls it back
+  const w6 = createPhysics(J, { gravity: [0, 0, 0] });
+  const base = w6.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'static', pos: [0, 0, 0] });
+  const car = w6.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 2, 0] });
+  const sl = w6.createJoint({ kind: 'slider', a: base, b: car, axis: [1, 0, 0], lower: -3, upper: 3 });
+  w6.setVelocity(car, [3, 0, 0]); run(w6, 30); w6.setVelocity(car, [0, 0, 0]);
+  const at = w6.jointValue(sl);
+  w6.rebuild(car, { mass: 5 }); run(w6, 5);
+  near(w6.jointValue(sl), at, 0.05, 'a rebuilt slider still reports the same position');
+  w6.setJointLimits(sl, -3, 1); run(w6, 300); // Jolt eases a limit it finds already passed, so it takes a few seconds
+  near(w6.jointValue(sl), 1, 0.1, 'a limit tightened past where a rebuilt slider has gone pulls it back to 1', `at ${at} now ${w6.jointValue(sl)}`);
+  w6.dispose();
+}
+
+// 41. council round 3 (Opus): joints, friction and groups wake sleepers
+{
+  // cutting a rope drops what hung on it (it had fallen asleep)
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const hook = w.createBody({ shape: 'sphere', w: 0.2, collider: 'static', pos: [0, 5, 0] });
+  const b = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 3, 0] });
+  const rope = w.createJoint({ kind: 'distance', a: hook, b, length: 2, rope: true });
+  run(w, 240);
+  ok(!w.isAwake(b), 'a body hanging still on a rope fell asleep');
+  w.removeJoint(rope); run(w, 40);
+  ok(w.getPose(b).pos[1] < 2.5, 'cutting the rope wakes it and it falls', String(w.getPose(b).pos[1]));
+  w.dispose();
+
+  // removing the hook does the same
+  const wa = createPhysics(J, { gravity: [0, -10, 0] });
+  const hook2 = wa.createBody({ shape: 'sphere', w: 0.2, collider: 'static', pos: [0, 5, 0] });
+  const b2 = wa.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 3, 0] });
+  wa.createJoint({ kind: 'distance', a: hook2, b: b2, length: 2, rope: true });
+  run(wa, 240);
+  ok(!wa.isAwake(b2), 'the second hanging body fell asleep');
+  wa.removeBody(hook2); run(wa, 40);
+  ok(wa.getPose(b2).pos[1] < 2.5, 'removing the hook wakes what hung from it', String(wa.getPose(b2).pos[1]));
+  wa.dispose();
+
+  // a joint made on sleepers pulls them
+  const wb = createPhysics(J, { gravity: [0, -10, 0] });
+  wb.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0], friction: 0.6 });
+  const sl = wb.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  const hk = wb.createBody({ shape: 'sphere', w: 0.2, collider: 'static', pos: [0, 5, 0] });
+  run(wb, 200);
+  ok(!wb.isAwake(sl), 'a box fell asleep on the floor');
+  wb.createJoint({ kind: 'distance', a: hk, b: sl, length: 2, rope: true }); run(wb, 90);
+  ok(wb.getPose(sl).pos[1] > 1.5, 'a rope made on a sleeper pulls it up', String(wb.getPose(sl).pos[1]));
+  wb.dispose();
+
+  // ice: a box asleep on a ramp starts to slide when the friction goes to 0
+  const wc = createPhysics(J, { gravity: [0, -10, 0] });
+  const a15 = (15 * Math.PI) / 360, q = [0, 0, Math.sin(a15), Math.cos(a15)];
+  const ramp = wc.createBody({ shape: 'box', w: 20, h: 0.5, d: 4, collider: 'static', pos: [0, 0, 0], quat: q, friction: 1 });
+  const bx = wc.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.78, 0], quat: q, friction: 1 });
+  run(wc, 300);
+  ok(!wc.isAwake(bx), 'a box rests (asleep) on a 15 degree ramp');
+  const x0 = wc.getPose(bx).pos[0];
+  wc.setFriction(ramp, 0); wc.setFriction(bx, 0); run(wc, 90);
+  ok(Math.abs(wc.getPose(bx).pos[0] - x0) > 0.5, 'making it ice sets the sleeper sliding', String(wc.getPose(bx).pos[0] - x0));
+  // setting the SAME friction again every frame does not keep things awake
+  const wd = createPhysics(J, { gravity: [0, -10, 0] });
+  const fl = wd.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0], friction: 0.6 });
+  const rb = wd.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  for (let i = 0; i < 240; i++) { wd.setFriction(rb, 0.6); wd.setFriction(fl, 0.6); wd.step(); }
+  ok(!wd.isAwake(rb), 'a sketch that sets friction to the same value every frame still lets things sleep');
+  wc.dispose(); wd.dispose();
+
+  // changing the collision group wakes a sleeper that now falls through
+  const we = createPhysics(J, { gravity: [0, -10, 0] });
+  we.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0], group: 'ground' });
+  const gb = we.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  we.ignoreCollisions('ghost', 'ground'); run(we, 200);
+  ok(!we.isAwake(gb), 'a box sleeps on a floor in group ground');
+  we.setGroup(gb, 'ghost'); run(we, 60);
+  ok(we.getPose(gb).pos[1] < 0, 'turned into a ghost it falls through the ground', String(we.getPose(gb).pos[1]));
+  we.dispose();
+
+  // the pick layer sees a sensor; the ordinary ray does not
+  const wf = createPhysics(J, { gravity: [0, 0, 0] });
+  wf.createBody({ shape: 'box', w: 2, h: 2, d: 2, collider: 'static', pos: [0, 0, 0] });
+  const coin = wf.createBody({ shape: 'sphere', w: 1, collider: 'none', pos: [0, 0, 3] });
+  ok(wf.rayCast([0, 0, 10], [0, 0, -10]).rec !== coin, 'an ordinary ray looks through a sensor');
+  ok(wf.rayCast([0, 0, 10], [0, 0, -10], undefined, true).rec === coin, 'the pick ray stops at a sensor in front');
+  ok(wf.rayCastAll([0, 0, 10], [0, 0, -10], undefined, true)[0].rec === coin, 'and so does the pick ray that lists everything');
+  wf.dispose();
+}
+
+// 42. council round 4 (Sol): kinematic riders, joint frames across rebuilds, queued force across a resize
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const plat = w.createBody({ shape: 'box', w: 6, h: 0.5, d: 6, collider: 'kinematic', pos: [0, 0, 0] });
+  const rider = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.75, 0], friction: 0.6, group: 'rider' });
+  w.ignoreCollisions('plat', 'rider'); run(w, 200);
+  ok(!w.isAwake(rider), 'a box sleeps on a kinematic platform');
+  w.setGroup(plat, 'plat'); run(w, 60);
+  ok(w.getPose(rider).pos[1] < 0, 'a sleeping rider falls through when its kinematic platform joins a group that ignores it', String(w.getPose(rider).pos[1]));
+  w.dispose();
+
+  // a hinge keeps its ORIGINAL zero and limits across a rebuild: a limit tightened after (past the swing) pulls the door back
+  const wh = createPhysics(J, { gravity: [0, 0, 0] });
+  const post = wh.createBody({ shape: 'box', w: 0.2, h: 0.2, d: 0.2, collider: 'static', pos: [0, 0, 0] });
+  const door = wh.createBody({ shape: 'box', w: 1.6, h: 0.2, d: 0.4, collider: 'dynamic', pos: [1, 0, 0] });
+  const hg = wh.createJoint({ kind: 'hinge', a: post, b: door, anchor: [0, 0, 0], axis: [0, 0, 1], lower: -1.5, upper: 1.5 });
+  wh.setAngularVelocity(door, [0, 0, Math.PI / 3]); wh.setVelocity(door, [0, Math.PI / 3, 0]); run(wh, 60); wh.setAngularVelocity(door, [0, 0, 0]); wh.setVelocity(door, [0, 0, 0]);
+  const swung = wh.jointValue(hg);
+  near(swung, Math.PI / 3, 0.15, 'the door swung about 60 degrees');
+  wh.rebuild(door, { mass: 5 }); run(wh, 5);
+  near(wh.jointValue(hg), swung, 0.05, 'a rebuilt hinge still reports the same angle');
+  wh.setJointLimits(hg, -1.5, Math.PI / 6); run(wh, 400);
+  near(wh.jointValue(hg), Math.PI / 6, 0.12, 'a limit tightened past the swing, after a rebuild, pulls the door back to it', String(wh.jointValue(hg)));
+  wh.dispose();
+
+  // a ball joint and a glue joint stay what they were when a stretched body is rebuilt before the next step
+  for (const kind of ['ball', 'glue']) {
+    const wk = createPhysics(J, { gravity: [0, 0, 0] });
+    const pin = wk.createBody({ shape: 'sphere', w: 0.2, collider: 'static', pos: [0, 0, 0] });
+    const arm = wk.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [2, 0, 0] });
+    wk.createJoint({ kind, a: pin, b: arm, anchor: [0, 0, 0] });
+    run(wk, 5);
+    wk.setPose(arm, [5, 0, 0], [0, 0, 0, 1]); wk.rebuild(arm, { w: 1.2 }); run(wk, 240);
+    const d = Math.hypot(...wk.getPose(arm).pos);
+    ok(d < 2.4, `a stretched ${kind} joint is still pulled back after the body is resized`, String(d));
+    wk.dispose();
+  }
+
+  // a push applied this frame survives a resize in the same frame
+  const wf = createPhysics(J, { gravity: [0, 0, 0] });
+  const cube = wf.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0, 0] });
+  wf.addForce(cube, [120, 0, 0]); wf.rebuild(cube, { w: 2 }); run(wf, 3);
+  ok(wf.getVelocity(cube)[0] > 0.05, 'force queued before a resize is still applied', String(wf.getVelocity(cube)[0]));
+  wf.dispose();
+}
+
+// 43. council round 4 (Opus): a box asleep on a DYNAMIC box falls when the bottom one changes group; a static body takes allowSleeping without touching Jolt
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  w.createBody({ shape: 'box', w: 20, h: 1, d: 20, collider: 'static', pos: [0, -0.5, 0], friction: 0.6 });
+  const bottom = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 0.5, 0], friction: 0.6 });
+  const top = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 1.5, 0], friction: 0.6, group: 'b' });
+  w.ignoreCollisions('a', 'b'); run(w, 240);
+  ok(!w.isAwake(top), 'a box sleeps on top of another box');
+  w.setGroup(bottom, 'a'); run(w, 40);
+  ok(w.getPose(top).pos[1] < 1.2, 'the top box falls when the bottom one joins a group that ignores it', String(w.getPose(top).pos[1]));
+  const wall = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'static', pos: [5, 0.5, 0] });
+  w.setAllowSleeping(wall, false);
+  ok(wall.def.allowSleeping === false, 'a static body remembers allowSleeping = false (and Jolt is not written to)');
+  w.rebuild(wall, { collider: 'dynamic' }); run(w, 300);
+  ok(w.isAwake(wall), 'and when it becomes dynamic it keeps that setting (never sleeps)');
+  w.dispose();
+}
+
+// 44. council round 5 (Sol): a hook teleported away wakes its weight; a teleport or a collider change drops a queued glide
+{
+  const w = createPhysics(J, { gravity: [0, -10, 0] });
+  const hook = w.createBody({ shape: 'sphere', w: 0.2, collider: 'static', pos: [0, 3, 0] });
+  const weight = w.createBody({ shape: 'box', w: 1, h: 1, d: 1, collider: 'dynamic', pos: [0, 1, 0] });
+  w.createJoint({ kind: 'distance', a: hook, b: weight, length: 2, rope: true }); run(w, 300);
+  ok(!w.isAwake(weight), 'a weight hangs asleep from its hook');
+  w.setPose(hook, [0, 9, 0], [0, 0, 0, 1]); run(w, 90);
+  ok(w.getPose(weight).pos[1] > 4, 'a hook teleported up pulls its sleeping weight along', String(w.getPose(weight).pos[1]));
+  w.dispose();
+
+  const wg = createPhysics(J, { gravity: [0, 0, 0] });
+  const plat = wg.createBody({ shape: 'box', w: 2, h: 0.5, d: 2, collider: 'kinematic', pos: [20, 0, 0] });
+  wg.moveKinematic(plat, [21, 0, 0]); wg.setPose(plat, [20, 0, 0], [0, 0, 0, 1], true); run(wg, 3);
+  near(wg.getPose(plat).pos[0], 20, 1e-6, 'a teleport to the SAME place still drops a glide queued this frame');
+  wg.moveKinematic(plat, [21, 0, 0]); wg.setPose(plat, [20, 0, 0], [0, 0.38, 0, 0.92], false); run(wg, 3);
+  ok(wg.getPose(plat).pos[0] > 20.5, 'a rotation-only write leaves the queued glide alone', String(wg.getPose(plat).pos[0]));
+  wg.setPose(plat, [20, 0, 0], [0, 0, 0, 1], true);
+  wg.moveKinematic(plat, [20.1, 0, 0]); wg.rebuild(plat, { collider: 'dynamic' }); run(wg, 3);
+  ok(wg.getVelocity(plat)[0] > 4, 'a platform gliding at 6 m/s that becomes dynamic keeps its speed (the step does not zero it)', String(wg.getVelocity(plat)[0]));
+  wg.dispose();
+}
+
+// 45. council round 5 (Opus): a kinematic solid keeps turning while it glides with moveTo
+{
+  const w = createPhysics(J, { gravity: [0, 0, 0] });
+  const spinner = w.createBody({ shape: 'box', w: 2, h: 0.2, d: 2, collider: 'kinematic', pos: [0, 0, 0], angVel: [0, 2, 0] });
+  for (let i = 0; i < 60; i++) { w.moveKinematic(spinner, [i * 0.01, 0, 0]); w.step(); }
+  const q = w.getPose(spinner).quat;
+  near(Math.abs(q[1]), Math.sin(1), 0.06, 'a spinning kinematic solid that moves with moveTo still turns (2 rad/s for 1 s)');
+  near(w.getPose(spinner).pos[0], 0.59, 0.03, 'and still travels');
+  w.dispose();
+}
+
 console.log(`\n${pass} passed, ${fail} failed  (fixed step ${(FIXED_DT * 1000).toFixed(2)} ms)`);
 process.exit(fail ? 1 : 0);

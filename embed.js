@@ -31,11 +31,16 @@ let serial = 0;
 /** A store on this page's localStorage under one key. Give every sketch its own key, so two sketches
  *  never overwrite each other's saved values. Without localStorage (private browsing) it keeps nothing. */
 export function localStore(key) {
-  const read = () => { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } };
+  // No prototype: a saved name like '__proto__' is just a name, and cannot reach Object.prototype.
+  const read = () => { try { return Object.assign(Object.create(null), JSON.parse(localStorage.getItem(key) || '{}')); } catch { return Object.create(null); } };
   const write = (o) => { try { localStorage.setItem(key, JSON.stringify(o)); } catch { /* storage refused */ } };
   return {
     read,
     apply(m) {
+      // A sketch cannot make this page store junk: names are short strings, values are strings of at most 120 KB.
+      const keyed = m.op === 'set' || m.op === 'remove';   // 'clear' names no key
+      if (keyed && (typeof m.key !== 'string' || m.key.length > 200)) return;
+      if (m.op === 'set' && (typeof m.value !== 'string' || m.value.length > 120 * 1024)) return;
       const o = read();
       if (m.op === 'set') o[m.key] = m.value;
       else if (m.op === 'remove') delete o[m.key];

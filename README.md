@@ -94,6 +94,19 @@ ignored, so check the [reference](docs/content/reference-data.mjs) before suspec
 speed on integrated graphics has not been measured; physics has (about 3 ms a step at 400 awake bodies
 on a fast desktop CPU).
 
+## Known limits
+
+- Dense piles of `'none'` solids are the expensive case: they never sleep, and every overlapping *pair* costs a
+  JavaScript contact callback each step (200 solids all inside each other: about 55 ms a step; one zone holding
+  200 coins: 1.4 ms). Keep sensors apart, or few.
+- Two `TriangleMesh` solids, one `'static'` and one `'kinematic'`, report no contact with each other (Jolt does not
+  collide a mesh against a mesh when neither is dynamic). A kinematic cube against a static mesh does.
+- The mouse picks by the collider's shape, not by `scale` (which is only how big it is drawn): a button widened with
+  `scale.x = 3` is still clicked where its collider is. Hide it, or resize it (`w`), to change what can be clicked.
+  A hidden, fully transparent or scaled-to-nothing solid is looked through; a visible `'none'` solid can be pointed at.
+- Pointer lock (`mouse.lock()`) needs `allow-pointer-lock` on the iframe; the docs frames do not have it.
+- The keyboard needs the preview to have focus: click the picture first.
+
 ## What is in this repository
 
 | Path | What it is |
@@ -119,7 +132,8 @@ npm test
 
 | Test | What it checks |
 | --- | --- |
-| `tests/physics.test.mjs` | The Jolt layer, in Node: resting heights, joints, ray casts, collision groups, meshes (147 tests). |
+| `tests/physics.test.mjs` | The Jolt layer, in Node: resting heights, joints, ray casts, collision groups, meshes (250 tests). |
+| `tests/types.test.mjs` | `docs/spashial.d.ts` accepts the sketches students really write: `tests/types-probe.ts` is type-checked with `tsc --strict`. |
 | `tests/sound.test.mjs` | The sound system, in Node, against a fake Web Audio (57 tests). |
 | `tests/online.test.mjs` | Online play, in Node: the sketch half wired to the host half over a real BroadcastChannel (92 tests; 2 more compare with shCode files and are skipped here). |
 | `tests/docs.test.mjs` | The docs agree with themselves, with `docs/spashial.d.ts` and with the running engine: every documented name exists and every documented default is true. |

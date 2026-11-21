@@ -218,7 +218,7 @@ function drawTop() {
         ['`world.rayCast(from, to)`', 'The closest **solid** thing on the line, or `null`. Sensors and `\'none\'` solids are looked through.'],
         ['`world.rayCastAll(from, to)`', 'Every Solid along the line, nearest first, as a list.'],
       ] } },
-      'Both take two points, each as `[x, y, z]` or as a vector (`player.pos`). A hit is an object with four parts.',
+      'Both take two points, each as `[x, y, z]` or as a vector (`player.pos`), and an optional third argument (see **Skipping the shooter** below). A hit is an object with four parts.',
       { table: { head: ['Field', 'Meaning'], rows: [
         ['`solid`', 'The Solid that was hit.'],
         ['`point`', 'Where, as a vector.'],
@@ -254,6 +254,32 @@ function drawTop() {
 `,
         steps: [{ wait: 120 }],
         expect: () => hits > 100 && marker.distanceTo(0, 1, 0) > 3.5 && marker.distanceTo(0, 1, 0) < 9,
+      } },
+      { h: 'Skipping the shooter' },
+      'A ray that starts **inside** a solid does not hit that solid. But a ray that starts further back crosses it, so it can report the body that fired it. Pass `{ ignore: shooter }` (a Solid, or a list of them) to look past it. With two points, a bare `shooter` works too.',
+      { demo: {
+        id: 'ray-ignore', title: 'The same ray, with and without ignore',
+        code: `let shooter, target, plain = null, past = null;
+function setup() {
+  new Floor(20);
+  shooter = new Cube(-3, 1, 0, 1.4, 2, 1.4, 'static');
+  shooter.color = 'tomato';
+  target = new Cube(4, 1, 0, 1.4, 2, 1.4, 'static');
+  target.color = 'gold';
+  camera.pos = [0, 7, 12];
+  camera.lookAt(0, 1, 0);
+}
+function update() {
+  plain = world.rayCast([-6, 1, 0], [8, 1, 0]);                         // the shooter is in the way
+  past = world.rayCast([-6, 1, 0], [8, 1, 0], { ignore: shooter });     // looks past it
+}
+function drawTop() {
+  fill('white'); textSize(16);
+  text('plain: ' + (plain && plain.solid === shooter ? 'the shooter' : '?') + '    ignore: ' + (past && past.solid === target ? 'the target' : '?'), 12, 12);
+}
+`,
+        steps: [{ wait: 20 }],
+        expect: () => plain !== null && plain.solid === shooter && past !== null && past.solid === target,
       } },
       { h: 'Every Solid on the line' },
       { demo: {
