@@ -77,4 +77,13 @@ select.btn { appearance: auto; padding-right: 10px; }
 .console .warn { color: var(--warn); }
 .console .ok { color: var(--ok); }
 
+/* the lobby bar a sketch asks for with multiplayer(); embed.js renderLobby() fills it */
+.lobby { display: none; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); font: 13px/1.4 var(--font); flex-wrap: wrap; }
+.lobby.on { display: flex; }
+.lobby input { width: 5.5em; padding: 5px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--code-bg); color: var(--text); text-transform: uppercase; letter-spacing: .15em; font: 600 13px var(--mono); }
+.lobby .code { font: 700 18px var(--mono); letter-spacing: .2em; color: var(--ok); }
+.lobby .err { color: var(--err); }
+.lobby .note { color: var(--muted); border: 0; background: none; padding: 0; margin: 0; max-width: none; }   /* not the docs' call-out box */
+.lobby button:disabled { opacity: .5; cursor: default; }
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

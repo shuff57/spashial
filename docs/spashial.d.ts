@@ -1,8 +1,8 @@
 // spaSHial API typings. Everything in this file is built and tested; each doc comment is also
 // the line the docs reference shows for that name. Keep this file in step with spashial.js.
 //
-// What is NOT here, because the engine does not do it yet: textures, sounds, glTF models,
-// Tiles, billboard text on a solid, online play, and saving. See docs/ "Planned".
+// What is NOT here, because the engine does not do it yet: height-map terrain, vehicles,
+// ragdolls, motorised joints and model animations. See docs/ "Planned".
 //
 // Conventions:
 //   - Y is UP, X right, Z toward the viewer (right-handed). One unit is about a metre.
@@ -37,7 +37,7 @@ declare function createVector(x?: number, y?: number, z?: number): Vector;
 type Collider = 'dynamic' | 'static' | 'kinematic' | 'none';
 type SolidShape = 'box' | 'sphere' | 'cylinder' | 'capsule' | 'cone' | 'torus' | 'hull' | 'triangles';
 
-// ---- Solid: every 3D object ---------------------------------------------------
+// ---- Solid: every 3D object -------------------------------------------------
 
 declare class Solid {
   /** No arguments: a 1x1x1 box in front of the camera. */
@@ -72,11 +72,33 @@ declare class Solid {
 
   /** Any CSS colour: 'tomato', '#ff79c6'. */
   color: string;
+  /** A picture wrapped onto the shape: a built-in name (`textureNames()`: 'checker', 'grid', 'bricks',
+   *  'planks', 'stripes', 'dots', 'grass', 'stone'), a name given to `registerTexture()`, or a web
+   *  address / data: URL. null goes back to the plain colour. An unknown name throws and lists the
+   *  choices. A web address shows the plain colour until it arrives (start it in `preload()` to have
+   *  it ready before `setup()`). `color` tints the picture; a textured solid whose colour you have not
+   *  set draws white, so the picture shows as it is. */
+  texture: string | null;
+  /** How many times the picture repeats across the shape: set a number, or [across, up] (or a vector);
+   *  reading gives a vector with x = across, y = up. Default 1. A hull or triangle mesh gets the picture
+   *  projected over its box. */
+  get textureRepeat(): Vector;
+  set textureRepeat(v: number | [number, number] | Vec3);
+  /** A glTF model (.glb or .gltf): a name given to `registerModel()`, or a web address / data: URL.
+   *  It draws instead of the shape, fitted inside the solid's w, h, d box (keeping its proportions) and
+   *  centred. The collider stays the shape, or set `shape = 'hull'` after the model has loaded to wrap
+   *  it. An unknown name throws and says how to give one. A web address shows the shape until it
+   *  arrives (start it in `preload()` to have it ready before `setup()`). Its own colours and
+   *  pictures are used: `color` and `texture` do not change it. null goes back to the shape. */
+  model: string | null;
   /** 0 = matt chalk, 1 = polished metal. */
   metalness: number;
   roughness: number;
   opacity: number;
   visible: boolean;
+  /** Draws the collider's outline in green, to see what really touches (a model's hull, a torus's ring of
+   *  capsules). The outline follows the solid and is not scaled by `scale`. */
+  debug: boolean;
 
   collider: Collider;
   /** 0 (no bounce, the default) to 1 (bounces back as high). */
@@ -92,6 +114,12 @@ declare class Solid {
   /** A cheap way to keep a body upright. true stops it
    *  tipping over (a character); the three axes are `lockRotation.x` etc. */
   lockRotation: boolean | { x?: boolean; y?: boolean; z?: boolean };
+  /** Billboard label above the body, always facing the camera. */
+  text: string | number | null;
+  /** Any CSS colour; default white (the letters have a dark edge so they read on any background). */
+  textColor: string;
+  /** How tall the letters are, in world units. Default 0.6. */
+  textSize: number;
 
   /** How quickly it loses speed to the air, per second. Default 0.05, so a rolling ball comes to
    *  rest; 0 is none. */
@@ -214,6 +242,9 @@ declare class Group extends Array<Solid> {
   newSolid(x: number, y: number, z: number, size?: number): Solid;
   // Setting one of these on the group sets it on every member now and on every member made later.
   color: string;
+  texture: string | null;
+  textureRepeat: number | [number, number] | Vec3;
+  model: string | null;
   collider: Collider;
   bounciness: number;
   friction: number;
@@ -228,6 +259,7 @@ declare class Group extends Array<Solid> {
   maxSpin: number | null;
   allowSleeping: boolean;
   collisionGroup: string | null;
+  debug: boolean;
   overlaps(other: Solid | Group, cb?: (self: Solid, other: Solid) => void): boolean;
   colliding(other: Solid | Group, cb?: (self: Solid, other: Solid) => void): number;
   collides(other: Solid | Group, cb?: (self: Solid, other: Solid) => void): boolean;
@@ -245,6 +277,15 @@ declare class Group extends Array<Solid> {
 }
 declare const allSolids: Group;
 
+/** Builds a level from layers of text, bottom layer first. A row's characters run along +x and the
+ *  rows along +z (the text reads like a map from above); layers go up +y. (x, y, z) is the middle of
+ *  the first cell, `cell` its size (default 1). Each character the legend names becomes one
+ *  `group.newSolid()` there, so the group's settings (collider, colour, texture) apply. A space or a
+ *  dot is empty; any other character the legend lacks throws and says where it is. One layer can be
+ *  given as a plain list of rows. The Tiles object is a Group of everything it made. */
+declare class Tiles extends Group {
+  constructor(layers: string[][] | string[], x: number, y: number, z: number, cell?: number, legend?: Record<string, Group>);
+}
 
 // ---- joints -----------------------------------------
 // A joint joins two Solids (at least one must be able to move). Angles are in degrees counted
@@ -429,7 +470,7 @@ interface Mouse {
 }
 declare const mouse: Mouse;
 
-// ---- time and maths ----------------------------------------------------------
+// ---- time, maths, saving, textures, models and sound -------------
 
 declare const frameCount: number;
 declare const deltaTime: number;
@@ -438,7 +479,117 @@ declare const height: number;
 declare function random(a?: number, b?: number): number;
 declare function degrees(rad: number): number;
 declare function radians(deg: number): number;
+/** Saves a number, text, list or object under a name; it is still there the next time the sketch runs.
+ *  A function, `undefined`, something that refers to itself, or more than 100 KB throws and says why.
+ *  The host page keeps the values (the preview has no storage of its own): see the embedding guide. */
+declare function storeItem(name: string, val: any): void;
+/** Reads back a value saved with storeItem(), or null if there is none. */
+declare function getItem(name: string): any;
+/** Forgets the value saved under a name. */
+declare function removeItem(name: string): void;
+/** Forgets every value saved with storeItem; saved pictures, sounds, fonts and models are kept. */
+declare function clearStorage(): void;
+/** The names a `texture` accepts: the built-in patterns and anything given to registerTexture(). */
+declare function textureNames(): string[];
+/** Gives a picture a name: `registerTexture('hero', 'data:image/png;base64,...')` (or a web address
+ *  on a server that allows it, with CORS), then `solid.texture = 'hero'`. A host page uses this to hand a sketch its saved art. */
+declare function registerTexture(name: string, source: string): void;
+/** Starts loading a texture now. In `preload()`, `setup()` waits for it. */
+declare function loadTexture(nameOrUrl: string): { readonly name: string; readonly ready: boolean; readonly failed: boolean };
+/** Parts of one sound file to play on their own: `{ jump: [startSeconds, endSeconds] }`. */
+interface SoundClips { [name: string]: [number, number] }
+/** A sound to play. Browsers only start audio after the first
+ *  click or key press in the sketch, so click the picture first. Until then, if the browser still has sound off, `play()` does nothing and says so once (a few browsers, and headless test browsers, allow sound at once). */
+declare class Sound {
+  constructor(nameOrUrl: string, opts?: { clips?: SoundClips });
+  readonly url: string;
+  /** Starts a NEW voice every call, so quick repeats overlap. With a clip name, plays just that slice. */
+  play(clip?: string): unknown;
+  /** The one looping voice (safe to call every frame). Starts when the file arrives. */
+  loop(clip?: string): unknown;
+  /** Plays once from a place in the world: quieter the further it is from the camera (full volume within
+   *  5 units, half at 15) and panned toward the side of the screen it is on. Give x, y, z, a [x, y, z]
+   *  list, or anything with x, y and z (a Solid). */
+  playAt(x: number, y: number, z: number, clip?: string): unknown;
+  playAt(where: Vec3 | [number, number, number], clip?: string): unknown;
+  /** Stops it but remembers the place; the next loop() carries on from there. */
+  pause(): void;
+  /** Stops every voice and forgets the place. */
+  stop(): void;
+  readonly paused: boolean;
+  readonly playing: boolean;
+  /** 0 to 1. Setting anything but a number throws. */
+  volume: number;
+  /** -1 left, 0 centre, 1 right. */
+  pan: number;
+  /** Speed, which also changes pitch. Above 0. */
+  rate: number;
+  /** Ramps the volume to `to` over `seconds` (default 0.5). */
+  fade(to: number, seconds?: number): Sound;
+  /** 0 until the file has loaded, then its length in seconds. */
+  readonly duration: number;
+  readonly loaded: boolean;
+  /** True if the browser refused to start audio. */
+  readonly blocked: boolean;
+}
+/** A built-in sound ('blip', 'coin', 'jump', 'hit', 'explode', 'laser', 'pop', 'thud': made in code, nothing
+ *  to download), a name from `registerSound()`, or a sound file's web address / data: URL. In `preload()`,
+ *  `setup()` waits for it. A bad name throws and lists the choices; a file that cannot be loaded says so
+ *  once and stays silent. */
+declare function loadSound(nameOrUrl: string, opts?: { clips?: SoundClips }): Sound;
+/** The names `loadSound` accepts: the built-ins and anything given to registerSound(). */
+declare function soundNames(): string[];
+/** Gives a sound file a name: `registerSound('boom', 'https://.../boom.mp3')` (or a data: URL), then
+ *  `loadSound('boom')`. A host page uses this to hand a sketch its sounds. */
+declare function registerSound(name: string, source: string): void;
+/** The level of everything, 0 to 1. With no argument, reads it. */
+declare function masterVolume(level?: number): number;
+/** Gives a model a name: `registerModel('ship', 'https://.../ship.glb')`, then `solid.model = 'ship'`.
+ *  A host page uses this to hand a sketch its models. */
+declare function registerModel(name: string, source: string): void;
+/** The names given to registerModel(). */
+declare function modelNames(): string[];
+/** Starts loading a model now. In `preload()`, `setup()` waits for it. */
+declare function loadModel(nameOrUrl: string): { readonly name: string; readonly ready: boolean; readonly failed: boolean };
 
+// ---- online play ----------------------------------------------------------------------------
+// Rooms, seats, moves and a lobby. A shared body carries a 3D pose (position AND rotation). A sketch cannot
+// reach a server itself, so the HOST PAGE serves the rooms: embed.js does it with no server, between two
+// tabs of one browser (see the docs, page Online play).
+
+type MultiplayerMode = 'none' | 'local' | 'coop' | 'versus';
+/** Call it in setup(). 'local': several players on one computer (turn-taking). 'coop' and 'versus': online,
+ *  with a lobby bar above the picture. Adds `game`, `players`, `turn`, `nextTurn()` and `myTurn()` (and, online,
+ *  `seat`) where your sketch has no name of its own. With `{ realtime: true }` bodies can be shared live. */
+declare function multiplayer(mode: MultiplayerMode, players: number, opts?: { realtime?: boolean }): unknown;
+declare const online: {
+  /** 'off' | 'connecting' | 'waiting' (alone in the room) | 'ready' | 'closed' | 'error' */
+  readonly status: string;
+  /** The 4-picture-letter room code, or null. */
+  readonly code: string | null;
+  /** Your place: 0 is the host. */
+  readonly seat: number | null;
+  readonly seats: number;
+  readonly players: unknown[];
+  readonly isHost: boolean;
+  /** The last problem, in plain words, or null. */
+  readonly error: string | null;
+  host(players?: number): void;
+  join(code: string): void;
+  leave(): void;
+  /** Sends a move: numbers, booleans and short words only, at most 1 KB. Every move, yours included, comes
+   *  back through onMove in the same order for everyone. */
+  send(move: unknown): void;
+  onMove(fn: (move: any, seat: number) => void): void;
+  /** Real-time rooms only. Shares 1 to 8 of your Solids at 15 Hz (a still one once a second): each carries
+   *  its position AND rotation, size, shape and colour. Others see it as a ghost Solid (collider 'none',
+   *  drawn 100 ms behind and smoothed). A removed Solid is unshared by itself. */
+  share(...bodies: Solid[]): void;
+  unshare(body?: Solid): void;
+  /** The ghosts of each other player's shared Solids, by seat. */
+  readonly peers: Record<number, Solid[]>;
+  sharedBy(seat: number): Solid[];
+};
 
 // ---- the 2D layer for drawTop() ----------------------------------------------------
 // These draw on a transparent layer over the finished picture, in CSS pixels from the top left.

@@ -5,7 +5,7 @@ text of each sits beside its files and is the one that applies.
 
 | Library | Version | Files | Licence | Copyright |
 | --- | --- | --- | --- | --- |
-| [three.js](https://threejs.org/) | 0.185.1 | `vendor/three/three.module.min.js`, `vendor/three/three.core.min.js` | MIT, [vendor/three/LICENSE](vendor/three/LICENSE) | 2010-2026 three.js authors |
+| [three.js](https://threejs.org/) | 0.185.1 | `vendor/three/three.module.min.js`, `vendor/three/three.core.min.js`, and three's glTF loader with its two helpers in `vendor/three/addons/` (`GLTFLoader.js`, `BufferGeometryUtils.js`, `SkeletonUtils.js`, from three's `examples/jsm`; loaded only when a sketch uses a model) | MIT, [vendor/three/LICENSE](vendor/three/LICENSE) | 2010-2026 three.js authors |
 | [JoltPhysics.js](https://github.com/jrouwe/JoltPhysics.js) (the WebAssembly build of [Jolt Physics](https://github.com/jrouwe/JoltPhysics)) | 1.1.1 | `vendor/jolt/jolt-physics.wasm.js`, `vendor/jolt/jolt-physics.wasm.wasm` | MIT, [vendor/jolt/LICENSE](vendor/jolt/LICENSE) | 2022-2024 Jorrit Rouwe |
 
 The Jolt build is the single-threaded one on purpose. The multithreaded build needs `SharedArrayBuffer`,

@@ -9,7 +9,8 @@
 //                  build on purpose: the multithreaded one needs SharedArrayBuffer, which needs
 //                  COOP/COEP headers on every page, and GitHub Pages cannot send them.
 //   vendor/three/  three.module.min.js + three.core.min.js (three.js, MIT). The module imports
-//                  './three.core.min.js' by that exact name.
+//                  './three.core.min.js' by that exact name. addons/ holds GLTFLoader and its two
+//                  helpers (also MIT, same licence file), loaded only when a sketch uses a model.
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +23,12 @@ const FILES = [
   ['node_modules/three/build/three.module.min.js', 'vendor/three/three.module.min.js'],
   ['node_modules/three/build/three.core.min.js', 'vendor/three/three.core.min.js'],
   ['node_modules/three/LICENSE', 'vendor/three/LICENSE'],
+  // glTF models: three's loader and the two helpers it imports. The engine imports the loader lazily,
+  // only when a sketch uses a model. Same layout as three's own examples/jsm: the loader imports
+  // 'three' through the runner's importmap and its siblings by relative path.
+  ['node_modules/three/examples/jsm/loaders/GLTFLoader.js', 'vendor/three/addons/loaders/GLTFLoader.js'],
+  ['node_modules/three/examples/jsm/utils/BufferGeometryUtils.js', 'vendor/three/addons/utils/BufferGeometryUtils.js'],
+  ['node_modules/three/examples/jsm/utils/SkeletonUtils.js', 'vendor/three/addons/utils/SkeletonUtils.js'],
 ];
 const missing = FILES.filter(([src]) => !existsSync(path.join(root, src)));
 if (missing.length) {

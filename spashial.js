@@ -6,20 +6,25 @@
 // render -> perf HUD -> drawTop(). Physics runs at a fixed 60 Hz whatever the screen does, and
 // the picture is interpolated between steps so a 144 Hz monitor is smooth.
 //
-// Not built yet (named in the spec): textures, glTF models, joints, Tiles, the billboard
-// `text` label, hull/triangle-mesh shapes, sounds, online. Setting an unknown property on a Solid does
+// Everything in the spec is built. Setting an unknown property on a Solid does
 // nothing special; it is not an error, as in moSHion.
 
 import * as THREE from 'three';
 import initJolt from './vendor/jolt/jolt-physics.wasm.js';
 import { createPhysics, FIXED_DT, PRIMITIVES, COLLIDERS } from './physics.js';
+import { drawBuiltin, BUILTIN_TEXTURES } from './textures.js';
+import { createSoundSystem } from './sound.js';
+import { createOnline } from './online.js';
 
 const DEG = 180 / Math.PI, RAD = Math.PI / 180;
 const S = { // engine state, one per page
   phys: null, scene: null, renderer: null, cam: null, hud: null, hudCtx: null,
-  solids: new Set(), groups: new Set(), joints: new Set(), halted: false, tick: 0, frameMs: 16.7, lastDt: 16.7, frames: 0, hudRatio: 1, perf: false,
+  solids: new Set(), groups: new Set(), joints: new Set(), textures: new Map(), hostTextures: new Map(), models: new Map(), hostModels: new Map(), pending: new Set(), halted: false, tick: 0, frameMs: 16.7, lastDt: 16.7, frames: 0, hudRatio: 1, perf: false,
   renderScale: 1, qualityMode: 'auto', canvasSize: null,
 };
+
+// Sounds: the same API as moSHion (sound.js). Loading is tracked, so preload() can wait for it.
+const audio = createSoundSystem({ track: (p) => { S.pending.add(p); p.then(() => S.pending.delete(p), () => S.pending.delete(p)); } });
 
 // ---------------------------------------------------------------- vectors
 function arr3(v, what = 'a position') {
@@ -128,6 +133,137 @@ const DEFAULT_SIZE = { // [w, h, d] multipliers for a single size argument
   box: [1, 1, 1], sphere: [1, 1, 1], cylinder: [1, 1, 1], capsule: [1, 2, 1], cone: [1, 1, 1], torus: [1, 0.35, 1],
 };
 
+// ---------------------------------------------------------------- textures
+// A texture is a built-in pattern (textureNames()), a name registered with registerTexture() (the
+// host's own art, or a data: URL), or a URL. Loading is asynchronous; a Solid shows its plain
+// colour until the picture arrives, and anything started in preload() is waited for before setup().
+const looksLikeUrl = (k) => /^(data:|blob:|https?:|\/|\.\/|\.\.\/)/.test(k) || /\.(png|jpe?g|gif|webp|avif|svg)(\?|#|$)/i.test(k);
+function textureNames() { return [...new Set([...BUILTIN_TEXTURES, ...S.hostTextures.keys()])].sort(); }
+function registerTexture(name, source) {
+  if (typeof name !== 'string' || !name) throw new TypeError(`registerTexture(name, url) needs a name like 'hero' (got ${JSON.stringify(name)})`);
+  if (typeof source !== 'string' || !source) throw new TypeError(`registerTexture('${name}', url) needs an address or a data: URL (got ${JSON.stringify(source)})`);
+  S.hostTextures.set(name, source);
+  S.textures.delete(name); // a new picture under an old name
+}
+/** Starts loading a texture now (use it in preload(): setup() waits for it). `.ready` says if it has arrived. */
+function loadTexture(key) {
+  if (typeof key !== 'string' || !key) throw new TypeError(`loadTexture needs a name or an address (got ${JSON.stringify(key)})`);
+  const e = textureEntry(key);
+  return { name: key, get ready() { return e.loaded; }, get failed() { return e.failed; } };
+}
+function textureEntry(key) {
+  let e = S.textures.get(key);
+  if (e) return e;
+  const host = S.hostTextures.get(key), builtin = !host && BUILTIN_TEXTURES.includes(key);
+  const src = host ?? (looksLikeUrl(key) ? key : null);
+  if (!builtin && !src) {
+    const names = textureNames();
+    throw new TypeError(`there is no texture called '${key}'. The built-in ones are ${names.map((n) => `'${n}'`).join(', ')}; or give a web address or a data: URL`);
+  }
+  const base = new THREE.Texture();
+  e = { base, key, loaded: false, failed: false, ready: null };
+  if (builtin) {
+    base.image = drawBuiltin(key); base.needsUpdate = true; e.loaded = true; e.ready = Promise.resolve();
+  } else {
+    e.ready = new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { base.image = img; base.needsUpdate = true; e.loaded = true; resolve(); };
+      img.onerror = () => { e.failed = true; console.error(`The texture '${key.length > 80 ? key.slice(0, 77) + '...' : key}' could not be loaded.`); resolve(); };
+      img.src = src;
+    });
+    S.pending.add(e.ready);
+    e.ready.then(() => S.pending.delete(e.ready));
+  }
+  S.textures.set(key, e);
+  return e;
+}
+/** One texture per Solid (cloned: the picture is shared, the repeat is the Solid's own). */
+function textureFor(key, repeat) {
+  const e = textureEntry(key);
+  const t = e.base.clone();
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = Math.min(4, S.renderer.capabilities.getMaxAnisotropy());
+  t.repeat.set(repeat[0], repeat[1]);
+  // Only a texture that HAS its picture may be marked for upload: marked with no image, three.js complains
+  // about it every frame (a picture that fails to load would flood the sketch's console). One that is still
+  // loading is marked by the Solid when the picture arrives.
+  if (e.loaded) t.needsUpdate = true;
+  else t.version = 0; // clone() marks the copy for upload itself: take that back until there is a picture
+  return { entry: e, map: t };
+}
+// Hulls and triangle meshes have no UVs. Project along the axis each triangle faces most, spread
+// over the shape's box, so the picture covers it once at textureRepeat [1, 1].
+function projectUVs(geometry) {
+  const pos = geometry.getAttribute('position');
+  geometry.computeBoundingBox();
+  const lo = geometry.boundingBox.min, hi = geometry.boundingBox.max;
+  const span = (a, b) => Math.max(hi[a] - lo[a], 1e-6) && [Math.max(hi[a] - lo[a], 1e-6), Math.max(hi[b] - lo[b], 1e-6)];
+  const uv = new Float32Array(pos.count * 2), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+    n.subVectors(c, b).cross(a.clone().sub(b));
+    const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+    const [u, v] = ay >= ax && ay >= az ? ['x', 'z'] : az >= ax ? ['x', 'y'] : ['z', 'y'];
+    const [su, sv] = span(u, v);
+    for (let k = 0; k < 3; k++) { const p = [a, b, c][k]; uv[(i + k) * 2] = (p[u] - lo[u]) / su; uv[(i + k) * 2 + 1] = (p[v] - lo[v]) / sv; }
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+// ---------------------------------------------------------------- models (glTF)
+// A model is a .glb / .gltf file: a web address, a data: URL, or a name given to registerModel() (how
+// a host such as shCode's Library hands a sketch its models). It draws INSTEAD of the shape; the
+// collider stays the shape, or `shape = 'hull'` wraps the model. The loader (about 115 KB) is only
+// fetched when a sketch uses a model.
+const looksLikeModelUrl = (k) => /^(data:|blob:|https?:|\/|\.\/|\.\.\/)/.test(k) || /\.(glb|gltf)(\?|#|$)/i.test(k);
+const shortName = (k) => (k.length > 60 ? k.slice(0, 57) + '...' : k);
+function modelNames() { return [...S.hostModels.keys()].sort(); }
+function registerModel(name, source) {
+  if (typeof name !== 'string' || !name) throw new TypeError(`registerModel(name, url) needs a name like 'ship' (got ${JSON.stringify(name)})`);
+  if (typeof source !== 'string' || !source) throw new TypeError(`registerModel('${name}', url) needs an address or a data: URL (got ${JSON.stringify(source)})`);
+  S.hostModels.set(name, source);
+  S.models.delete(name);
+}
+let gltfLoader = null;
+function modelEntry(key) {
+  let e = S.models.get(key);
+  if (e) return e;
+  const src = S.hostModels.get(key) ?? (looksLikeModelUrl(key) ? key : null);
+  if (!src) {
+    const names = modelNames();
+    throw new TypeError(`there is no model called '${key}'. ${names.length ? `Registered models: ${names.map((n) => `'${n}'`).join(', ')}; or give` : 'Give'} a .glb or .gltf web address or a data: URL, or name one with registerModel(name, url)`);
+  }
+  e = { key, scene: null, loaded: false, failed: false, ready: null };
+  e.ready = (async () => {
+    try {
+      gltfLoader ??= import('./vendor/three/addons/loaders/GLTFLoader.js').then((m) => new m.GLTFLoader());
+      const [loader, res] = await Promise.all([gltfLoader, fetch(src)]);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buffer = await res.arrayBuffer();
+      const base = /^(data|blob):/.test(src) ? '' : src.slice(0, src.lastIndexOf('/') + 1); // a .gltf finds its pictures next to it
+      e.scene = (await new Promise((ok, bad) => loader.parse(buffer, base, ok, bad))).scene;
+      e.scene.updateMatrixWorld(true);
+      e.box = new THREE.Box3().setFromObject(e.scene, true); // measured once, in the model's own space
+      e.loaded = true;
+    } catch (err) {
+      e.failed = true;
+      console.error(`The model '${shortName(key)}' could not be loaded (${err && err.message ? err.message : err}).`);
+    }
+  })();
+  S.pending.add(e.ready);
+  e.ready.then(() => S.pending.delete(e.ready));
+  S.models.set(key, e);
+  return e;
+}
+/** Starts loading a model now. In preload(), setup() waits for it. */
+function loadModel(key) {
+  if (typeof key !== 'string' || !key) throw new TypeError(`loadModel needs a name or an address (got ${JSON.stringify(key)})`);
+  const e = modelEntry(key);
+  return { name: key, get ready() { return e.loaded; }, get failed() { return e.failed; } };
+}
+
 let nextSolidId = 1;
 class Solid {
   constructor(...args) {
@@ -148,6 +284,11 @@ class Solid {
     this._id = nextSolidId++;
     this._shape = shape;
     this._color = '#8be9fd';
+    this._colorSet = false; // untouched: a textured solid then draws white, so the picture is not tinted
+    this._texKey = null; this._repeat = [1, 1]; this._map = null;
+    this._modelKey = null; this._modelObj = null; this._modelEntry = null;
+    this._debug = false; this._debugObj = null;
+    this._text = null; this._textColor = '#ffffff'; this._textSize = 0.6; this._label = null;
     this._opacity = 1;
     this._visible = true;
     this._metal = 0;
@@ -190,6 +331,7 @@ class Solid {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(S.phys.triangles(this._rec), 3));
         g.computeVertexNormals();
+        projectUVs(g);
         return g;
       }
       case 'triangles': {
@@ -198,6 +340,7 @@ class Solid {
         g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices.flat()), 3));
         g.setIndex(triangles.flat());
         const flat = g.toNonIndexed(); g.dispose(); flat.computeVertexNormals(); // flat shading, like the other shapes' edges
+        projectUVs(flat);
         return flat;
       }
       default: throw new Error(`unknown shape '${this._shape}'`);
@@ -212,22 +355,30 @@ class Solid {
       this._mesh.castShadow = this._mesh.receiveShadow = true;
       S.scene.add(this._mesh);
     }
+    if (this._modelObj) this._fitModel();
+    if (this._debug) this._drawDebug(); // the collider may have changed shape or size
     this._syncVisual();
   }
   _syncVisual() {
     const m = this._mesh;
     m.scale.set(this._scale.x, this._scale.y, this._scale.z);
     m.visible = this._visible;
+    if (this._label) this._label.visible = this._visible;
+    this._material.visible = !this._modelObj; // a model draws instead of the shape
     this._material.opacity = this._opacity;
     this._material.transparent = this._opacity < 1;
     this._material.metalness = this._metal;
     this._material.roughness = this._rough;
-    this._material.color.copy(parseColor(this._color));
+    this._material.color.copy(parseColor(this._texKey && !this._colorSet ? '#ffffff' : this._color));
   }
   _refresh() { // pull the pose from physics; keep the previous one for interpolation
     const { pos, quat } = S.phys.getPose(this._rec);
     this._prev.p = this._cur.p; this._prev.q = this._cur.q;
     this._cur = { p: pos, q: quat };
+  }
+  _placeAt(p, q) { // a teleport with no glide: a peer's ghost is drawn where the network says
+    S.phys.setPose(this._rec, p, q);
+    this._cur = { p: [...p], q: [...q] }; this._prev = { p: [...p], q: [...q] };
   }
   _moveTo(a) {
     S.phys.setPose(this._rec, a, this._cur.q);
@@ -279,6 +430,13 @@ class Solid {
   get shape() { return this._shape; }
   set shape(v) {
     const s = v === 'cube' ? 'box' : v;
+    if (s === 'hull') {
+      if (!this._modelObj) throw new TypeError(this._modelKey ? `shape = 'hull' wraps the model, which is still loading: start it in preload() with loadModel('${shortName(this._modelKey)}')` : "shape = 'hull' wraps a model: set model first (or make a hull from points with new Hull())");
+      const points = this._modelPoints(), prev = this._shape;
+      this._shape = 'hull';
+      try { this._rebuild({ shape: 'hull', points }); } catch (e) { this._shape = prev; throw e; }
+      return;
+    }
     if (!PRIMITIVES.includes(s)) throw new TypeError(`shape must be one of ${PRIMITIVES.map((x) => `'${x}'`).join(', ')} (got ${JSON.stringify(v)}); a hull or a triangle mesh is made with new Hull() or new TriangleMesh()`);
     const prev = this._shape, d = this._rec.def;
     this._shape = s;
@@ -289,7 +447,111 @@ class Solid {
   scaleBy(x, y = x, z = x) { this._scale = new Vector(this._scale.x * x, this._scale.y * y, this._scale.z * z); this._syncVisual(); }
 
   // --- looks
-  get color() { return this._color; } set color(v) { this._color = v; this._syncVisual(); }
+  get color() { return this._color; } set color(v) { this._color = v; this._colorSet = true; this._syncVisual(); }
+  /** A texture name (textureNames()), a registered name, or a web address / data: URL; null for the plain colour. */
+  get texture() { return this._texKey; }
+  set texture(v) {
+    if (v == null) { this._clearTexture(); this._texKey = null; this._syncVisual(); return; }
+    if (typeof v !== 'string' || !v) throw new TypeError(`texture must be a name like 'bricks', an address, or null (got ${JSON.stringify(v)})`);
+    const { entry, map } = textureFor(v, this._repeat); // throws for an unknown name, before anything changes
+    this._clearTexture();
+    this._texKey = v; this._map = map;
+    this._material.map = map; this._material.needsUpdate = true;
+    this._syncVisual();
+    if (!entry.loaded && !entry.failed) entry.ready.then(() => { if (this._map === map && !this._removed && entry.loaded) { map.needsUpdate = true; this._material.needsUpdate = true; } }); // `ready` settles on a failed load too: no picture, nothing to upload
+  }
+  /** A model name (registerModel) or a .glb / .gltf address, drawn instead of the shape; null for the shape. */
+  get model() { return this._modelKey; }
+  set model(v) {
+    if (v == null) { this._clearModel(); this._modelKey = null; this._syncVisual(); return; }
+    if (typeof v !== 'string' || !v) throw new TypeError(`model must be a name or a .glb address, or null (got ${JSON.stringify(v)})`);
+    const e = modelEntry(v); // throws for an unknown name, before anything changes
+    this._clearModel(); this._modelKey = v;
+    if (e.loaded) this._showModel(e);
+    else e.ready.then(() => { if (this._modelKey === v && !this._removed && e.loaded) this._showModel(e); });
+  }
+  _showModel(e) {
+    this._clearModel();
+    const holder = new THREE.Group();
+    holder.add(e.scene.clone(true));
+    holder.traverse((o) => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+    this._modelObj = holder; this._modelEntry = e;
+    this._mesh.add(holder);
+    this._fitModel();
+    this._syncVisual();
+  }
+  // Fit the model inside the shape's box, keeping its proportions, centred on the solid.
+  _fitModel() {
+    const holder = this._modelObj, box = this._modelEntry.box, size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+    const { w, h, d } = this._rec.def;
+    const k = Math.min(...[[w, size.x], [h, size.y], [d, size.z]].filter(([, m]) => m > 1e-9).map(([a, m]) => a / m));
+    const scale = Number.isFinite(k) ? k : 1;
+    holder.scale.setScalar(scale);
+    holder.position.copy(mid).multiplyScalar(-scale);
+  }
+  _clearModel() { if (this._modelObj) { this._mesh.remove(this._modelObj); this._modelObj = null; } } // shares the cached model's geometry: nothing to dispose
+  // the model's own vertices, in this solid's space (for shape = 'hull'); thinned so Jolt stays quick
+  _modelPoints() {
+    const holder = this._modelObj, out = new Map(), v = new THREE.Vector3();
+    this._mesh.updateMatrixWorld(true);
+    const inverse = new THREE.Matrix4().copy(this._mesh.matrixWorld).invert();
+    holder.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.getAttribute('position'), m = new THREE.Matrix4().multiplyMatrices(inverse, o.matrixWorld);
+      for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m); out.set(`${Math.round(v.x * 200)},${Math.round(v.y * 200)},${Math.round(v.z * 200)}`, [v.x, v.y, v.z]); }
+    });
+    const all = [...out.values()], step = Math.ceil(all.length / 400);
+    return step > 1 ? all.filter((_, i) => i % step === 0) : all;
+  }
+  /** Draws the collider's outline in green, to see what really touches (the model, a hull or the torus's ring of capsules). */
+  get debug() { return this._debug; }
+  set debug(v) { this._debug = !!v; this._drawDebug(); }
+  _drawDebug() {
+    if (this._debugObj) { S.scene.remove(this._debugObj); this._debugObj.geometry.dispose(); this._debugObj.material.dispose(); this._debugObj = null; }
+    if (!this._debug) return;
+    const tris = new THREE.BufferGeometry();
+    tris.setAttribute('position', new THREE.BufferAttribute(S.phys.triangles(this._rec), 3));
+    this._debugObj = new THREE.LineSegments(new THREE.WireframeGeometry(tris), new THREE.LineBasicMaterial({ color: '#50fa7b', depthTest: false, transparent: true }));
+    tris.dispose();
+    this._debugObj.renderOrder = 9;
+    S.scene.add(this._debugObj);
+  }
+  /** A label above the solid that always faces the camera: a string or number (a score, a name); null removes it. */
+  get text() { return this._text; }
+  set text(v) {
+    if (v != null && typeof v !== 'string' && typeof v !== 'number') throw new TypeError(`text must be a string or a number, or null (got ${JSON.stringify(v)})`);
+    this._text = v == null || v === '' ? null : String(v);
+    this._drawLabel();
+  }
+  get textColor() { return this._textColor; }
+  set textColor(v) { if (typeof v !== 'string' || !v) throw new TypeError(`textColor must be a colour like 'white' or '#ffcc00' (got ${JSON.stringify(v)})`); this._textColor = v; this._drawLabel(); }
+  /** How tall the letters are, in world units (default 0.6). */
+  get textSize() { return this._textSize; }
+  set textSize(v) { this._textSize = posNum(v, 'textSize'); this._drawLabel(); }
+  _drawLabel() {
+    if (this._label) { S.scene.remove(this._label); this._label.material.map.dispose(); this._label.material.dispose(); this._label = null; }
+    if (this._text == null) return;
+    const px = 64, pad = 14, c = document.createElement('canvas'), g = c.getContext('2d');
+    g.font = `bold ${px}px system-ui, sans-serif`;
+    c.width = Math.ceil(g.measureText(this._text).width) + pad * 2; c.height = px + pad * 2;
+    g.font = `bold ${px}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = 10; g.strokeStyle = 'rgba(20, 20, 30, 0.85)'; g.strokeText(this._text, c.width / 2, c.height / 2 + 3); // a dark edge, readable on any background
+    g.fillStyle = this._textColor; g.fillText(this._text, c.width / 2, c.height / 2 + 3);
+    const map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace;
+    this._label = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false, transparent: true }));
+    this._label.scale.set((c.width / c.height) * this._textSize * 1.6, this._textSize * 1.6, 1);
+    this._label.renderOrder = 10; this._label.visible = this._visible;
+    S.scene.add(this._label);
+  }
+  _clearTexture() { if (this._map) { this._map.dispose(); this._map = null; } this._material.map = null; this._material.needsUpdate = true; }
+  /** How many times the picture repeats across the shape: a number, or [across, up]. 1 = once. */
+  get textureRepeat() { return new Vector(this._repeat[0], this._repeat[1], 0); }
+  set textureRepeat(v) {
+    const r = typeof v === 'number' ? [v, v] : Array.isArray(v) ? [v[0], v[1]] : v && typeof v === 'object' ? [v.x, v.y] : null;
+    if (!r || !(r[0] > 0) || !(r[1] > 0)) throw new TypeError(`textureRepeat must be a number above 0 or [across, up] (got ${JSON.stringify(v)})`);
+    this._repeat = r;
+    if (this._map) this._map.repeat.set(r[0], r[1]);
+  }
   get opacity() { return this._opacity; } set opacity(v) { this._opacity = unit(v, 'opacity'); this._syncVisual(); }
   get visible() { return this._visible; } set visible(v) { this._visible = !!v; this._syncVisual(); }
   get metalness() { return this._metal; } set metalness(v) { this._metal = unit(v, 'metalness'); this._syncVisual(); }
@@ -363,7 +625,12 @@ class Solid {
   }
   clone() {
     const c = this._spawn();
-    c.color = this._color; c.opacity = this._opacity; c.visible = this._visible;
+    if (this._colorSet) c.color = this._color;
+    c.opacity = this._opacity; c.visible = this._visible;
+    c._repeat = [...this._repeat]; if (this._texKey) c.texture = this._texKey;
+    if (this._modelKey) c.model = this._modelKey;
+    c.debug = this._debug;
+    c._textColor = this._textColor; c._textSize = this._textSize; if (this._text != null) c.text = this._text;
     c.friction = this.friction; c.bounciness = this.bounciness; c.density = this.density;
     c.drag = this.drag; c.rotationDrag = this.rotationDrag; c.gravityScale = this.gravityScale;
     c.isSuperFast = this.isSuperFast; c.collisionGroup = this.collisionGroup;
@@ -379,6 +646,9 @@ class Solid {
     for (const j of this.joints) j.remove();
     S.phys.removeBody(this._rec);
     S.scene.remove(this._mesh);
+    if (this._label) { this._text = null; this._drawLabel(); }
+    if (this._debugObj) { this._debug = false; this._drawDebug(); }
+    if (this._map) this._map.dispose();
     this._mesh.geometry.dispose(); this._material.dispose();
     S.solids.delete(this);
     for (const g of [...this._groups]) g._drop(this);
@@ -582,13 +852,85 @@ for (const verb of Object.keys(VERBS)) {
     return result;
   };
 }
-for (const key of ['color', 'collider', 'bounciness', 'friction', 'density', 'opacity', 'visible', 'drag', 'rotationDrag', 'gravityScale', 'isSuperFast', 'maxSpeed', 'maxSpin', 'allowSleeping', 'collisionGroup']) {
+for (const key of ['color', 'collider', 'bounciness', 'friction', 'density', 'opacity', 'visible', 'drag', 'rotationDrag', 'gravityScale', 'isSuperFast', 'maxSpeed', 'maxSpin', 'allowSleeping', 'collisionGroup', 'texture', 'textureRepeat', 'model', 'debug']) {
   Object.defineProperty(Group.prototype, key, {
     get() { return this._defaults[key]; },
     set(v) { this._defaults[key] = v; for (const a of this) a[key] = v; },
   });
 }
 const allSolids = new Group();
+
+// A level from text. `layers` are bottom first, each a list of rows; a row's characters run along +x and
+// its rows along +z (so the text reads like a map seen from above), layers go up +y. (x, y, z) is the
+// middle of the first cell and `cell` is its size. Each character the legend names becomes one
+// `group.newSolid()` there, so the group's settings (collider, colour, texture...) apply. A space or a
+// dot is empty; any other character the legend lacks is a mistake, and says so.
+class Tiles extends Group {
+  constructor(layers, x, y, z, cell = 1, legend = {}) {
+    super();
+    if (Array.isArray(layers) && layers.length && typeof layers[0] === 'string') layers = [layers]; // one layer is fine
+    if (!Array.isArray(layers) || !layers.every((l) => Array.isArray(l) && l.every((r) => typeof r === 'string'))) throw new TypeError("new Tiles() takes layers of text rows, like [['###', '# #', '###']], then x, y, z, the cell size and a legend");
+    for (const k of ['x', 'y', 'z']) if (typeof { x, y, z }[k] !== 'number') throw new TypeError(`new Tiles() needs a number for ${k} (the middle of the first cell)`);
+    posNum(cell, 'the cell size');
+    if (!legend || typeof legend !== 'object') throw new TypeError("new Tiles() needs a legend like { '#': walls } that says which Group each character makes");
+    for (const [ch, g] of Object.entries(legend)) if (!(g instanceof Group)) throw new TypeError(`the legend entry '${ch}' must be a Group (got ${JSON.stringify(g)}); make one with new Group()`);
+    // look at the whole level first, so a typo in row 3 leaves nothing behind
+    const cells = [];
+    layers.forEach((rows, layer) => rows.forEach((row, r) => [...row].forEach((ch, col) => {
+      if (ch === ' ' || ch === '.') return;
+      if (!legend[ch]) throw new RangeError(`the level has the character '${ch}' (layer ${layer}, row ${r}, column ${col}) but the legend has no '${ch}'. Add it to the legend, or use a space for an empty cell`);
+      cells.push([legend[ch], x + col * cell, y + layer * cell, z + r * cell]);
+    })));
+    for (const [g, px, py, pz] of cells) this.add(g.newSolid(px, py, pz, cell));
+  }
+}
+
+// ---------------------------------------------------------------- saving
+// storeItem / getItem / removeItem / clearStorage, as in moSHion. The preview iframe has an opaque origin,
+// where even READING localStorage throws, so values live in a map the host page hands over before the
+// sketch starts (window.__spashialStorage, or moSHion's window.__moshionStorage), and every change is
+// posted up as { source: 'preview-storage', op: 'set' | 'remove' | 'clear', key, value } for the host to
+// keep on its own origin. A page that really has localStorage (a demo opened on its own) uses it, under
+// 'spashial:' so it cannot collide with another project on the same site. Values are stored as JSON.
+const SAVE_LIMIT = 100 * 1024;
+const KEEP_PREFIXES = ['texture:', 'texmeta:', 'sound:', 'sndmeta:', 'font:', 'fontmeta:', 'model:']; // the student's art: clearStorage() never wipes it
+let localStore;
+function realStorage() {
+  if (localStore === undefined) { try { window.localStorage.getItem('spashial:probe'); localStore = window.localStorage; } catch { localStore = null; } } // probe by USE: Chrome throws on the property access
+  return localStore;
+}
+const saved = () => (window.__spashialStorage ??= window.__moshionStorage ?? {});
+const tellHost = (msg) => { try { window.parent.postMessage({ source: 'preview-storage', ...msg }, '*'); } catch { /* no host */ } };
+const saveName = (name, fn) => { if (typeof name !== 'string' || !name) throw new TypeError(`${fn}(name, ...) needs a name like 'highScore' (got ${JSON.stringify(name)})`); return name; };
+function storeItem(name, value) {
+  saveName(name, 'storeItem');
+  let raw;
+  try { raw = JSON.stringify(value); } catch { throw new TypeError(`storeItem('${name}', value) cannot save that: it refers to itself. Save plain numbers, text, lists and objects`); }
+  if (raw === undefined) throw new TypeError(`storeItem('${name}', value) cannot save ${typeof value === 'function' ? 'a function' : 'undefined'}. Save plain numbers, text, lists and objects`);
+  if (raw.length > SAVE_LIMIT) throw new RangeError(`storeItem('${name}', value) is too big to save (${Math.round(raw.length / 1024)} KB; the limit is ${SAVE_LIMIT / 1024} KB)`);
+  const ls = realStorage();
+  if (ls) { ls.setItem('spashial:' + name, raw); return; }
+  saved()[name] = raw; tellHost({ op: 'set', key: name, value: raw });
+}
+function getItem(name) {
+  saveName(name, 'getItem');
+  const ls = realStorage(), raw = ls ? ls.getItem('spashial:' + name) : (Object.prototype.hasOwnProperty.call(saved(), name) ? saved()[name] : null);
+  if (raw === null || raw === undefined) return null;
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+function removeItem(name) {
+  saveName(name, 'removeItem');
+  const ls = realStorage();
+  if (ls) { ls.removeItem('spashial:' + name); return; }
+  delete saved()[name]; tellHost({ op: 'remove', key: name });
+}
+const isArtKey = (k) => KEEP_PREFIXES.some((p) => k.startsWith(p));
+function clearStorage() {
+  const ls = realStorage();
+  if (ls) { const keys = []; for (let i = 0; i < ls.length; i++) keys.push(ls.key(i)); for (const k of keys) if (k.startsWith('spashial:') && !isArtKey(k.slice(9))) ls.removeItem(k); return; }
+  for (const k of Object.keys(saved())) if (!isArtKey(k)) delete saved()[k];
+  tellHost({ op: 'clear', keep: KEEP_PREFIXES });
+}
 
 // ---------------------------------------------------------------- input
 const norm = (k) => { const s = String(k).toLowerCase(); return s === ' ' ? 'space' : s.replace(/^arrow/, '').replace('control', 'ctrl'); };
@@ -863,6 +1205,11 @@ function render(alpha) {
     const p = a._prev.p, c = a._cur.p;
     m.position.set(p[0] + (c[0] - p[0]) * alpha, p[1] + (c[1] - p[1]) * alpha, p[2] + (c[2] - p[2]) * alpha);
     q.set(...a._prev.q); q2.set(...a._cur.q); m.quaternion.copy(q.slerp(q2, alpha));
+    if (a._debugObj) { a._debugObj.position.copy(m.position); a._debugObj.quaternion.copy(m.quaternion); } // the collider does not take the visual scale
+    if (a._label) {
+      const d = a._rec.def, reach = 0.5 * Math.max(d.w, d.h, d.d) * Math.max(a._scale.x, a._scale.y, a._scale.z); // far enough up that a tumbling solid never covers it
+      a._label.position.set(m.position.x, m.position.y + reach + a._textSize * 0.9, m.position.z);
+    }
   }
   S.renderer.render(S.scene, S.cam);
 }
@@ -885,6 +1232,42 @@ export async function boot() {
   S.scene.background = new THREE.Color('#1e1f29');
   S.cam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
   S.cam.position.set(0, 3, 7); S.cam.lookAt(0, 0, 0);
+  // playAt() pans and fades a sound by where the camera is, and which way is right on screen
+  audio.setListener(() => { S.cam.updateMatrixWorld(); const p = S.cam.position, r = new THREE.Vector3().setFromMatrixColumn(S.cam.matrixWorld, 0); return { pos: [p.x, p.y, p.z], right: [r.x, r.y, r.z] }; });
+  audio.unlockAudio();
+
+  // Online play (online.js): the same `online` and `multiplayer()` as moSHion, with a 3D pose per shared
+  // body. The iframe cannot reach a server, so it talks to the host page, which serves it (shCode's
+  // /api/rooms, or online-local-host.js between two tabs). Peers' bodies are ghosts: collider 'none'.
+  const SAFE_COLOR = /^(?:[a-z]{3,20}|#[0-9a-f]{3,8}|(?:rgba?|hsla?)\(\s*-?[\d.]+%?(?:\s*,\s*-?[\d.]+%?){2,3}\s*\))$/i; // what the room server accepts
+  const net = createOnline({
+    post: (msg) => { if (window.parent === window) return false; window.parent.postMessage(msg, '*'); },
+    now: () => performance.now(),
+    readBody: (b) => {
+      if (!(b instanceof Solid)) throw new TypeError(`online.share() takes Solids (got ${b === null ? 'null' : typeof b})`);
+      if (b._removed) throw new Error('this Solid was removed');
+      const v = S.phys.getVelocity(b._rec), d = b._rec.def;
+      return { x: b._cur.p[0], y: b._cur.p[1], z: b._cur.p[2], q: [...b._cur.q], vx: v[0], vy: v[1], vz: v[2], w: d.w, h: d.h, dp: d.d, sh: b._shape, ...(SAFE_COLOR.test(b._color) ? { c: b._color } : {}), v: b._visible };
+    },
+    makeGhost: (st) => {
+      const g = new Solid(st.x, st.y, st.z, st.w ?? 1, st.h ?? 1, st.dp ?? 1, 'none');
+      if (st.sh && st.sh !== 'box' && PRIMITIVES.includes(st.sh)) g.shape = st.sh;
+      if (st.c) g.color = st.c;
+      if (st.v === false) g.visible = false;
+      g._placeAt([st.x, st.y, st.z], st.q);
+      return g;
+    },
+    updateGhost: (g, st) => {
+      g._placeAt([st.x, st.y, st.z], st.q);
+      if (st.c && st.c !== g._color) g.color = st.c;
+      if (st.v !== undefined && st.v !== g._visible) g.visible = st.v;
+    },
+    removeGhost: (g) => g.remove(),
+    log: (level, text) => console[level === 'error' ? 'error' : 'warn'](text),
+    // multiplayer() adds game, turn... only where the sketch has no name of its own (a `let game` is not a window property)
+    taken: (name) => { try { return (0, eval)(`typeof ${name}`) !== 'undefined'; } catch { return true; } },
+  });
+  addEventListener('message', (e) => { const d = e.data; if (e.source === window.parent && d && typeof d.source === 'string' && d.source.startsWith('preview-online')) net.receive(d); });
   S.ambient = new THREE.AmbientLight('#ffffff', 0.9); S.scene.add(S.ambient);
   S.sun = new THREE.DirectionalLight('#ffffff', 2.4); S.scene.add(S.sun, S.sun.target);
   S.sun.shadow.camera.left = S.sun.shadow.camera.bottom = -20; S.sun.shadow.camera.right = S.sun.shadow.camera.top = 20; S.sun.shadow.mapSize.set(1024, 1024); S.sun.shadow.bias = -0.0004; S.sun.shadow.normalBias = 0.03;
@@ -894,8 +1277,12 @@ export async function boot() {
   bindInput();
 
   Object.assign(window, {
-    Solid, Cube, Sphere, Cylinder, Capsule, Cone, Torus, Hull, TriangleMesh, Floor, Group, allSolids, world,
-    HingeJoint, BallJoint, DistanceJoint, SliderJoint, GlueJoint, camera, ambientLight, sunLight,
+    Solid, Cube, Sphere, Cylinder, Capsule, Cone, Torus, Hull, TriangleMesh, Floor, Group, Tiles, allSolids, world,
+    HingeJoint, BallJoint, DistanceJoint, SliderJoint, GlueJoint,
+    textureNames, registerTexture, loadTexture, modelNames, registerModel, loadModel,
+    online: net.online, multiplayer: net.multiplayer,
+    storeItem, getItem, removeItem, clearStorage, Joint,
+    Sound: audio.Sound, loadSound: audio.loadSound, soundNames: audio.soundNames, registerSound: audio.registerSound, masterVolume: audio.masterVolume, camera, ambientLight, sunLight,
     PointLight, SpotLight, background, Canvas, kb, mouse, Vector, createVector,
     random: (a, b) => (a === undefined ? Math.random() : b === undefined ? Math.random() * a : a + Math.random() * (b - a)),
     degrees: (r) => r * DEG, radians: (d) => d * RAD,
@@ -912,6 +1299,12 @@ export async function boot() {
   return {
     start() {
       hook('preload');
+      // Pictures asked for in preload() (loadTexture, or a url given to a Solid) arrive first; with
+      // nothing to wait for, setup() runs right now, so an error in it is thrown to the caller.
+      return S.pending.size ? Promise.all([...S.pending]).then(begin) : begin();
+    },
+  };
+  function begin() {
       hook('setup');
       let last = performance.now(), acc = 0;
       const frame = (now) => {
@@ -932,6 +1325,7 @@ export async function boot() {
             endOfTickInput();
           }
           followCamera(acc / FIXED_DT, dt);
+          net.tick(); // shares this frame's bodies and moves the peers' ghosts
           placeSun();
           hook('draw');
           render(acc / FIXED_DT);
@@ -943,6 +1337,5 @@ export async function boot() {
         autoQuality();
       };
       requestAnimationFrame(frame);
-    },
-  };
+  }
 }

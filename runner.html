@@ -76,38 +76,50 @@
 <div id="empty">Click Run to start your sketch.</div>
 <script type="module">
 // Boot order:
-//   1. Get the sketch. The host answers the postMessage bridge (any size), or it rides in
-//      ?code=<base64url> (small sketches: GitHub Pages answers 414 past a ~6 KB request line).
+//   1. Ask the host page for the sketch AND for the values the sketch saved last time (storeItem).
+//      One round trip carries both. The sketch can also ride in ?code=<base64url> (small sketches:
+//      GitHub Pages answers 414 past a ~6 KB request line).
 //   2. Load the engine: it loads Jolt, then defines Solid, world, camera... on window.
 //   3. Inject the sketch as a classic script, so its setup()/update()/draw() become globals.
 //   4. start(): preload(), setup(), then the loop.
 //
-// The bridge, same shape as moSHion's:
+// The host protocol, the same as moSHion's:
 //   frame -> parent   { source: 'preview-storage-request' }
-//   parent -> frame   { source: 'preview-storage-init', code: '<the sketch>' }
-// A host that does not answer within 400 ms leaves the frame empty (or on ?code= if it has one).
-function getSketch() {
+//   parent -> frame   { source: 'preview-storage-init', code: '<the sketch>', data: { name: '<json>' } }
+//   frame -> parent   { source: 'preview-storage', op: 'set' | 'remove' | 'clear', key, value }   (every change)
+// This page has no localStorage of its own (the frame is sandboxed with an opaque origin), so the host
+// keeps the saved values. A host that does not answer within 400 ms leaves the frame empty (or on
+// ?code= if it has one, with nothing saved); `code` and `data` are both optional in the answer.
+function askHost(timeout) {
 	return new Promise(function (resolve) {
-		var encoded = new URLSearchParams(location.search).get('code');
-		if (encoded) {
-			try {
-				var b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-				while (b64.length % 4) b64 += '=';
-				resolve(decodeURIComponent(escape(atob(b64))));
-			} catch (e) { console.error('Failed to decode sketch:', e.message || e); resolve(null); }
-			return;
-		}
 		if (window.parent === window) { resolve(null); return; }
-		var timer = setTimeout(function () { window.removeEventListener('message', onMsg); resolve(null); }, 400);
+		var timer = setTimeout(function () { window.removeEventListener('message', onMsg); resolve(null); }, timeout);
 		function onMsg(e) {
 			if (e.source !== window.parent) return;
 			var m = e.data || {};
-			if (m.source !== 'preview-storage-init' || typeof m.code !== 'string') return;
-			clearTimeout(timer); window.removeEventListener('message', onMsg); resolve(m.code);
+			if (m.source !== 'preview-storage-init') return;
+			clearTimeout(timer); window.removeEventListener('message', onMsg); resolve(m);
 		}
 		window.addEventListener('message', onMsg);
-		window.parent.postMessage({ source: 'preview-storage-request' }, '*');
+		try { window.parent.postMessage({ source: 'preview-storage-request' }, '*'); } catch (e) { clearTimeout(timer); resolve(null); }
 	});
+}
+async function getSketch() {
+	var encoded = new URLSearchParams(location.search).get('code');
+	var code = null, init;
+	if (encoded) {
+		try {
+			var b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+			while (b64.length % 4) b64 += '=';
+			code = decodeURIComponent(escape(atob(b64)));
+		} catch (e) { console.error('Failed to decode sketch:', e.message || e); return null; }
+		init = await askHost(250);
+	} else {
+		init = await askHost(400);
+		code = init && typeof init.code === 'string' ? init.code : null;
+	}
+	window.__spashialStorage = init && init.data && typeof init.data === 'object' ? init.data : {};
+	return code;
 }
 (async function () {
 	var code = await getSketch();
@@ -126,7 +138,8 @@ function getSketch() {
 		['setup', 'update', 'draw', 'drawTop', 'preload'].map(function (n) { return ';if(typeof ' + n + '==="function"){window.' + n + '=' + n + '}'; }).join('');
 	document.head.appendChild(s);
 	// An error in setup() goes through the same handler as any other, so it carries a line number.
-	try { engine.start(); } catch (e) { window.dispatchEvent(new ErrorEvent('error', { error: e, message: e && e.message })); return; }
+	// start() returns a promise only when preload() asked for pictures, models or sounds: wait for them, then setup() runs.
+	try { var started = engine.start(); if (started && started.then) await started; } catch (e) { window.dispatchEvent(new ErrorEvent('error', { error: e, message: e && e.message })); return; }
 	window.parent.postMessage({ source: 'preview-ready' }, '*');
 })();
 </script>
