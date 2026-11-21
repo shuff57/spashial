@@ -240,7 +240,7 @@ function update() {
       { code: `<iframe id="frame"
         sandbox="allow-scripts allow-downloads allow-modals"
         allow="autoplay; fullscreen; gamepad; clipboard-write"
-        src="https://shuff57.github.io/spashial/runner.html"></iframe>
+        src="https://spashial.lefthanddev.com/runner.html"></iframe>
 
 <script>
 const sketch = \`

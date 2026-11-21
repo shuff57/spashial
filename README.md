@@ -26,10 +26,10 @@ function update() {
 
 ## Try it
 
-- **[The live site](https://shuff57.github.io/spashial/)** has a demo gallery.
-- **[The sandbox](https://shuff57.github.io/spashial/sandbox.html)** is an editor with 13 examples.
+- **[The live site](https://spashial.lefthanddev.com/)** has a demo gallery.
+- **[The sandbox](https://spashial.lefthanddev.com/sandbox.html)** is an editor with 13 examples.
   *Copy link* puts the whole sketch in the address, so anyone can open it.
-- **[The docs](https://shuff57.github.io/spashial/docs/)** have 26 pages and about 90 demos you can run
+- **[The docs](https://spashial.lefthanddev.com/docs/)** have 26 pages and about 90 demos you can run
   and change, one for every kind of interaction: shapes, physics, forces, touching, joints, keyboard,
   mouse, ray casts, camera, lights and the HUD.
 
@@ -52,7 +52,7 @@ cookies or its storage. The host hands it the code with one message:
 
 ```html
 <iframe id="frame" sandbox="allow-scripts allow-downloads allow-modals"
-        src="https://shuff57.github.io/spashial/runner.html"></iframe>
+        src="https://spashial.lefthanddev.com/runner.html"></iframe>
 <script>
   addEventListener('message', (e) => {
     if (e.data?.source === 'preview-storage-request')
@@ -64,6 +64,16 @@ cookies or its storage. The host hands it the code with one message:
 `embed.js` wraps this (`runSketch(iframe, code, { onReady, onLog, onError })`). The messages and the
 hosting notes are in [the embedding guide](docs/content/04-guides.mjs) (page `embedding`).
 To host your own copy, copy `runner.html`, `spashial.js`, `physics.js` and `vendor/` into one folder.
+
+## Publishing
+
+- **GitHub Pages** deploys on every push to `main` (`.github/workflows/pages.yml`), at
+  https://shuff57.github.io/spashial/.
+- **Cloudflare Pages** serves https://spashial.lefthanddev.com (project `spashial`, direct upload, like
+  moSHion). Deploy the committed files with
+  `CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npm run deploy:cloudflare`. The token needs
+  *Cloudflare Pages: Edit*. `_headers` gives every file `access-control-allow-origin: *`, which the
+  sandboxed runner needs. Cloudflare redirects `/sandbox.html` to `/sandbox`; that is fine.
 
 ## What is built, and what is not
 
