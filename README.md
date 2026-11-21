@@ -67,8 +67,6 @@ To host your own copy, copy `runner.html`, `spashial.js`, `physics.js` and `vend
 
 ## Publishing
 
-- **GitHub Pages** deploys on every push to `main` (`.github/workflows/pages.yml`), at
-  https://shuff57.github.io/spashial/.
 - **Cloudflare Pages** serves https://spashial.lefthanddev.com (project `spashial`, direct upload, like
   moSHion). It deploys by itself on every push to `main` (`.github/workflows/cloudflare.yml`, using the
   repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`). To deploy by hand, run

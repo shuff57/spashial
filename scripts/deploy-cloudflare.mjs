@@ -5,7 +5,7 @@
 //
 // The token needs Account > Cloudflare Pages > Edit. It is read from the environment and never written
 // anywhere. Only COMMITTED files are published (it exports HEAD), minus the tests and tooling, so what
-// goes live is exactly what GitHub Pages serves.
+// goes live is exactly what is committed.
 //
 // WHY A SEPARATE WORKING DIRECTORY: `wrangler pages deploy <dir>` looks for `./functions` and
 // `./wrangler.toml` in the CURRENT directory, not in <dir>. Run from another project's checkout (say a
