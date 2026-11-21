@@ -54,6 +54,8 @@ const dashes = strings.filter((s) => /[–—]/.test(s));
 t.check('no em dash or en dash anywhere in the docs text or demos', !dashes.length, dashes.slice(0, 3).map((s) => s.slice(0, 60)));
 const nonAscii = strings.filter((s) => /[^\x00-\x7F]/.test(s));
 t.check('no non-ASCII characters in the docs text or demos', !nonAscii.length, nonAscii.slice(0, 3).map((s) => s.slice(0, 60)));
+const codeInLink = strings.filter((s) => /\[[^\]]*`[^\]]*\]\(/.test(s));
+t.check('no link label contains a code span (the text formatter would print the link as raw text)', !codeInLink.length, codeInLink.slice(0, 2).map((s) => s.slice(0, 80)));
 const links = strings.flatMap((s) => [...s.matchAll(/\]\(#\/([a-z0-9-]+)/g)].map((m) => m[1]));
 const badLinks = links.filter((l) => !ids.includes(l));
 t.check(`every link to a page resolves (${links.length} links)`, !badLinks.length, badLinks);

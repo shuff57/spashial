@@ -318,7 +318,7 @@ window.addEventListener('message', (e) => {
     id: 'reference', group: 'Reference', title: 'Reference',
     summary: 'Every name, one line each. Generated from the same table the tests check against the engine.',
     blocks: [
-      'Types are written the way you would use them. **Units**: positions and sizes in units (about metres), angles in degrees, `vel`, `angularVelocity`, `maxSpeed` and `maxSpin` per frame. The typings for editors are in [`docs/spashial.d.ts`](https://github.com/shuff57/spashial/blob/main/docs/spashial.d.ts).',
+      'Types are written the way you would use them. **Units**: positions and sizes in units (about metres), angles in degrees, `vel`, `angularVelocity`, `maxSpeed` and `maxSpin` per frame. The typings for editors are in [docs/spashial.d.ts](https://github.com/shuff57/spashial/blob/main/docs/spashial.d.ts).',
       { reference: true },
     ],
   },
