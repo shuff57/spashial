@@ -103,7 +103,50 @@ select.btn { appearance: auto; padding-right: 10px; }
 /* the top bar */
 .bar { display: flex; align-items: center; gap: 18px; height: 60px; padding: 0 24px; background: var(--card); border-bottom: 1px solid var(--border); }
 .bar .brand { font: 700 19px/1 var(--head); color: var(--text); text-decoration: none; letter-spacing: -.01em; }
-.bar .brand b { color: var(--brand); }
+.bar .brand b { color: var(--brand); display: inline-block; transform-origin: 50% 100%; }
+
+/* The logo: the dot of the dotless i is a cube, with the favicon's fading trail behind it (assets/logo-lockup.svg).
+   On hover the cube tumbles in from above, lands on the i, squashes, rocks and settles; the impact throws the
+   trail out behind it and presses the SH down. moSHion's ball drops straight; this one spins, because a cube would. */
+.bar .brand .i-slot { position: relative; display: inline-block; }
+.bar .brand .cube {
+  position: absolute; left: 50%; top: -.1em; width: .5em; height: .57em;
+  --dx: 0px; --dy: 0px; --s: 1; --o: 1;
+  transform: translate(calc(-50% + var(--dx)), var(--dy)) scale(var(--s)); opacity: var(--o);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -11.5 20 23'%3E%3Cpath d='M0-11.5 10-5.75 0 0-10-5.75Z' fill='%23a9d1ff'/%3E%3Cpath d='M-10-5.75 0 0V11.5L-10 5.75Z' fill='%235baafd'/%3E%3Cpath d='M0 0 10-5.75V5.75L0 11.5Z' fill='%233b82d6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transform-origin: 50% 60%; pointer-events: none;
+}
+.bar .brand .cube.t1 { --dx: -.6em; --dy: -.56em; --s: .45; --o: .25; }
+.bar .brand .cube.t2 { --dx: -.35em; --dy: -.31em; --s: .7; --o: .5; }
+.bar .brand:hover b, .bar .brand:focus-visible b { animation: logo-press 4s infinite; }
+.bar .brand:hover .cube.main, .bar .brand:focus-visible .cube.main { animation: logo-tumble 4s infinite; }
+.bar .brand:hover .cube.t1, .bar .brand:focus-visible .cube.t1 { animation: logo-wake 4s .05s infinite; }
+.bar .brand:hover .cube.t2, .bar .brand:focus-visible .cube.t2 { animation: logo-wake 4s infinite; }
+@keyframes logo-tumble {
+  0%   { transform: translate(-50%, -.95em) rotate(-240deg); animation-timing-function: cubic-bezier(.55, 0, .9, .5); }
+  14%  { transform: translate(-50%, 0) rotate(0) scale(1.35, .65); }
+  19%  { transform: translate(-50%, -.3em) rotate(14deg) scale(.92, 1.08); }
+  24%  { transform: translate(-50%, 0) rotate(0) scale(1.18, .8); }
+  28%  { transform: translate(-50%, -.1em) rotate(-5deg) scale(.97, 1.03); }
+  32%  { transform: translate(-50%, 0) rotate(0) scale(1.06, .94); }
+  36%, 100% { transform: translate(-50%, 0) rotate(0) scale(1, 1); }
+}
+@keyframes logo-wake {
+  0%   { opacity: var(--o); transform: translate(calc(-50% + var(--dx)), var(--dy)) scale(var(--s)); }
+  5%, 14% { opacity: 0; transform: translate(-50%, 0) scale(.3); }
+  16%  { opacity: .9; transform: translate(-50%, 0) scale(.8); animation-timing-function: cubic-bezier(.2, .7, .3, 1); }
+  38%, 100% { opacity: var(--o); transform: translate(calc(-50% + var(--dx)), var(--dy)) scale(var(--s)); }
+}
+@keyframes logo-press {
+  0%, 14% { transform: none; }
+  15%  { transform: translateY(1px) scale(1.05, .9); }
+  20%  { transform: translateY(-1px) scale(.98, 1.03); }
+  25%  { transform: translateY(.5px) scale(1.02, .97); }
+  30%, 100% { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar .brand b, .bar .brand .cube { animation: none !important; }
+}
 .bar nav { display: flex; gap: 4px; margin-left: auto; align-items: center; }
 .bar nav a { color: var(--meta); text-decoration: none; padding: 7px 12px; border-radius: var(--radius); font: 14px var(--head); }
 .bar nav a:hover { color: var(--text); background: var(--muted-bg); }

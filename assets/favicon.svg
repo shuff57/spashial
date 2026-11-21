@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#1e1e1e"/>
+  <!-- the trail, same as in logo-lockup.svg: two fading cubes, like moSHion's fading balls -->
+  <g opacity="0.25"><path d="M9 7.9L10.65 8.85L9 9.8L7.35 8.85Z" fill="#a9d1ff"/><path d="M7.35 8.85L9 9.8V11.7L7.35 10.75Z" fill="#5baafd"/><path d="M9 9.8L10.65 8.85V10.75L9 11.7Z" fill="#3b82d6"/></g>
+  <g opacity="0.5"><path d="M14 11.2L16.60 12.70L14 14.2L11.40 12.70Z" fill="#a9d1ff"/><path d="M11.40 12.70L14 14.2V17.2L11.40 15.70Z" fill="#5baafd"/><path d="M14 14.2L16.60 12.70V15.70L14 17.2Z" fill="#3b82d6"/></g>
+  <!-- the cube -->
+  <path d="M21 14.5L26.63 17.75L21 21L15.37 17.75Z" fill="#a9d1ff"/><path d="M15.37 17.75L21 21V27.5L15.37 24.25Z" fill="#5baafd"/><path d="M21 21L26.63 17.75V24.25L21 27.5Z" fill="#3b82d6"/>
+</svg>
