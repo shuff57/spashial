@@ -159,6 +159,25 @@ function drawTop() {
 `,
         expect: () => small.mass === 1 && Math.abs(big.mass - 8) < 0.05 && Math.abs(dense.mass - 10) < 0.05,
       } },
+      { h: 'See what really collides' },
+      '`solid.debug = true` draws the collider\'s real outline as green lines. It is the quickest way to answer "why did that bounce off nothing?". A torus shows its ring of capsules, a hull shows its true outline, and a scaled Solid shows that its collider did not grow with its look.',
+      { demo: {
+        id: 'debug-colliders', title: 'Outlines of what really collides',
+        code: `function setup() {
+  world.gravity.y = -10;
+  new Floor(20);
+  const big = new Cube(-5, 1.5, 0, 'static');
+  big.scale = 3;                           // LOOKS 3 across; the collider is still 1
+  const ring = new Torus(-1.5, 1.2, 0, 2.4, 0.8, 2.4, 'static');
+  const rock = new Hull(2, 1, 0, [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1], [0, 1.6, 0]], 'static');
+  const pill = new Capsule(5.5, 1.3, 0, 1.2, 2.6, 1.2, 'static');
+  for (const s of [big, ring, rock, pill]) s.debug = true;
+  camera.pos = [0, 4, 12];
+  camera.lookAt(0, 1.2, 0);
+}
+`,
+        expect: () => __spashial.scene.children.filter((o) => o.isLineSegments).length === 4,
+      } },
       { h: 'Every physics property' },
       'This table is the whole set. Press **Try it** on any row to run it on a cube. It is the same table the [reference](#/reference) uses.',
       { physics: ['physics'] },

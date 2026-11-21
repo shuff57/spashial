@@ -41,7 +41,8 @@ export default [
       ] },
       { h: 'Where to go next' },
       { list: [
-        'Make things and make them look right: [Shapes](#/shapes) and [Looks](#/looks).',
+        'Make things and make them look right: [Shapes](#/shapes), [Looks](#/looks), [Textures](#/textures), [Models](#/models) and [Text labels](#/labels).',
+        'Build a level from text with [Tiles](#/tiles), add [Sound](#/sound), and keep a high score with [Saving](#/saving).',
         'Make them move and collide: [Physics](#/physics), [Forces](#/forces) and [Touching](#/touch).',
         'Let the player in: [Keyboard](#/keyboard), [Mouse](#/mouse) and [Camera](#/camera).',
         'Build machines: [Joints](#/joints) and [Moving platforms](#/platforms).',
@@ -93,7 +94,7 @@ function drawTop() {
         'Physics runs at a **fixed 60 Hz** and the picture is smoothed between steps, so a game plays the same on a slow laptop and a fast monitor.',
         '`frameCount` counts physics frames. It is the right thing to time with: `if (frameCount % 60 === 0)` happens once a second.',
         'If your code throws an error, the loop stops at the first one so you read one message, not sixty a second.',
-        'A fifth hook, `preload()`, is called once before `setup()`. Nothing needs loading yet, so you can ignore it.',
+        'A fifth hook, `preload()`, is called once before `setup()`. Start loading pictures, models and sounds there (`loadTexture`, `loadModel`, `loadSound`) and `setup()` waits until they are ready. If you load nothing, it makes no difference.',
       ] },
     ],
   },
@@ -239,6 +240,8 @@ function drawTop() {
         ['`opacity`', '1 is solid, 0 is invisible', '1'],
         ['`visible`', '`false` hides it', '`true`'],
         ['`scale`', 'How big it looks. The collider does not change.', '1'],
+        ['`texture`', 'A picture wrapped on it. See [Textures](#/textures).', '`null`'],
+        ['`text`', 'A label above it. See [Text labels](#/labels).', '`null`'],
       ] } },
       { demo: {
         id: 'metal-grid', title: 'Metalness and roughness',

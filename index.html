@@ -115,6 +115,7 @@
       <div class="picker">
         <ul id="list" aria-label="Demos"></ul>
         <div>
+          <div id="gLobby" class="lobby" role="group" aria-label="Online play" style="margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius)"></div>
           <div class="stage" id="galleryStage">
             <div class="idle"><button class="btn primary" id="galleryPlay">Run</button></div>
           </div>
@@ -163,7 +164,7 @@ function update() {
     <div class="wrap">
       <div>
         <h2 id="box">What is in the box</h2>
-        <p class="copy">Six shapes, your own hulls and meshes, joints, forces, ray casts, cameras, lights and a flat layer for scores. Each page of the docs has demos you can run.</p>
+        <p class="copy">Six shapes, your own hulls and meshes, textures, glTF models, joints, forces, ray casts, cameras, lights, sound, saving, a level built from text, and online play between two tabs. Each page of the docs has demos you can run.</p>
       </div>
       <div class="index" id="index"></div>
     </div>
@@ -190,12 +191,11 @@ function update() {
       <h2 id="limits">What it cannot do yet</h2>
       <p class="copy">spaSHial is young. These are not built, and the docs say so in one place.</p>
       <ul>
-        <li>Textures and sounds</li>
-        <li>Models from files (glTF)</li>
-        <li>Online multiplayer</li>
-        <li>Saving a game's data</li>
+        <li>Online play between two computers</li>
         <li>Vehicles and ragdolls</li>
         <li>Terrain from a height map</li>
+        <li>Animated models</li>
+        <li>Motorised and 6-axis joints</li>
       </ul>
       <p style="margin-top:18px"><a href="./docs/#/planned">The planned list, with what to do instead</a></p>
     </div>
@@ -210,7 +210,7 @@ function update() {
 </footer>
 
 <script type="module">
-import { runSketch, toBase64Url } from './embed.js';
+import { runSketch, renderLobby, localStore, toBase64Url } from './embed.js';
 import { pages } from './docs/content/index.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -225,7 +225,7 @@ function stopActive() {
   active.onStop?.();
   active = null;
 }
-function play(stage, code, { log, onStop, label } = {}) {
+function play(stage, code, { log, onStop, label, id } = {}) {
   stopActive();
   stage.querySelector('iframe')?.remove();
   const frame = document.createElement('iframe');
@@ -235,6 +235,8 @@ function play(stage, code, { log, onStop, label } = {}) {
   if (log) log.textContent = '';
   const line = (cls, text) => { if (!log) return; const d = document.createElement('div'); d.className = cls; d.textContent = text; log.append(d); };
   const run = runSketch(frame, code, {
+    store: localStore('spashial-demo-store:' + (id || 'landing')),
+    onLobby: (view, actions) => renderLobby($('gLobby'), view, actions),
     onLog: (type, text) => line(type === 'error' ? 'error' : type === 'warn' ? 'warn' : '', text),
     onError: (x) => line('error', `${x.name}: ${x.message}${x.line ? ` (line ${x.line})` : ''}`),
   });
@@ -245,7 +247,7 @@ const text = (name) => fetch(`./demos/${name}.js`).then((r) => r.text());
 // ---- the hero: the wrecking ball, started by itself unless the visitor asks for less motion
 const hero = $('heroStage');
 let heroCode = null;
-async function playHero() { heroCode ??= await text('wrecking-ball'); play(hero, heroCode, { label: 'A wrecking ball swinging into a wall of cubes', onStop: () => { $('heroNote').textContent = 'Paused to run your demo below.'; } }); $('heroNote').textContent = 'This is the engine running, not a video.'; }
+async function playHero() { heroCode ??= await text('wrecking-ball'); play(hero, heroCode, { id: 'wrecking-ball', label: 'A wrecking ball swinging into a wall of cubes', onStop: () => { $('heroNote').textContent = 'Paused to run your demo below.'; } }); $('heroNote').textContent = 'This is the engine running, not a video.'; }
 $('heroPlay').onclick = playHero;
 if (reduced) $('heroNote').textContent = 'Motion is off because your device asks for less. Press play to run it.'; else playHero();
 
@@ -264,11 +266,11 @@ for (const d of list) {
   const li = document.createElement('li');
   const b = Object.assign(document.createElement('button'), { className: 'item', type: 'button', textContent: d.title });
   b.dataset.id = d.id; b.setAttribute('aria-pressed', 'false');
-  b.onclick = async () => { choose(d); play($('galleryStage'), await text(d.id), { log: $('gLog'), label: `${d.title}, running` }); };
+  b.onclick = async () => { choose(d); play($('galleryStage'), await text(d.id), { id: d.id, log: $('gLog'), label: `${d.title}, running` }); };
   li.append(b); ul.append(li);
 }
 choose(list[0]);
-$('galleryPlay').onclick = async () => play($('galleryStage'), await text(chosen.id), { log: $('gLog'), label: `${chosen.title}, running` });
+$('galleryPlay').onclick = async () => play($('galleryStage'), await text(chosen.id), { id: chosen.id, log: $('gLog'), label: `${chosen.title}, running` });
 
 // ---- the code sample opens in the sandbox with its code in the link
 $('sampleOpen').href = `./sandbox.html#code=${toBase64Url($('sample').textContent)}`;

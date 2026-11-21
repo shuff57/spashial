@@ -175,6 +175,62 @@ function drawTop() {
 `,
         error: { message: /a Hull's size comes from its points/, line: 3 },
       } },
+      { h: 'Pictures, models, levels, sound and saving' },
+      { demo: {
+        id: 'err-texture', title: 'A texture name that does not exist',
+        code: `function setup() {
+  const a = new Cube(0, 0, 0);
+  a.texture = 'marble';          // the message lists the names that do exist
+}
+`,
+        error: { message: /there is no texture called 'marble'. The built-in ones are 'bricks', 'checker'/, line: 3 },
+      } },
+      { demo: {
+        id: 'err-tiles', title: 'A level character the legend does not know',
+        code: `const walls = new Group();
+function setup() {
+  new Tiles(['#x#'], 0, 0, 0, 1, { '#': walls });     // nothing is made: the whole level is checked first
+}
+`,
+        error: { message: /the level has the character 'x' \(layer 0, row 0, column 1\) but the legend has no 'x'/, line: 3 },
+      } },
+      { demo: {
+        id: 'err-model-hull', title: 'Wrapping a model that has not loaded',
+        code: `function setup() {
+  const s = new Solid(0, 1, 0, 1);
+  s.model = 'data:model/gltf-binary;base64,AAAA';
+  s.shape = 'hull';              // the model is still loading
+}
+`,
+        error: { message: /shape = 'hull' wraps the model, which is still loading: start it in preload\(\) with loadModel/, line: 4 },
+      } },
+      { demo: {
+        id: 'err-volume', title: 'A word where a number goes, on a sound',
+        code: `function setup() {
+  const s = loadSound('coin');
+  s.volume = 'loud';
+}
+`,
+        error: { message: /volume must be a number \(got "loud"\)/, line: 3 },
+      } },
+      { demo: {
+        id: 'err-save-function', title: 'Something that cannot be saved',
+        code: `function setup() {
+  storeItem('callback', () => 1);     // only numbers, text, lists and objects can be saved
+}
+`,
+        error: { message: /cannot save a function/, line: 2 },
+      } },
+      { demo: {
+        id: 'err-save-loop', title: 'An object that refers to itself',
+        code: `function setup() {
+  const me = {};
+  me.self = me;
+  storeItem('me', me);
+}
+`,
+        error: { message: /refers to itself/, line: 4 },
+      } },
       { h: 'Joints' },
       { demo: {
         id: 'err-joint-static', title: 'A joint between two static bodies',
@@ -228,7 +284,7 @@ function update() {
 `,
         error: { message: /boom/, line: 4 }, stops: true,
       } },
-      { note: 'Setting a property spaSHial does not know is **not** an error: `solid.texture = \'coin\'` is accepted and does nothing, because textures are not built yet. If something has no effect, check the [Planned](#/planned) page before suspecting your code.' },
+      { note: 'Setting a property spaSHial does not know is **not** an error: `solid.glow = 5` is accepted and does nothing. If something has no effect, check the name against the [reference](#/reference), and the [Planned](#/planned) page, before suspecting anything else.' },
     ],
   },
 
@@ -249,12 +305,14 @@ function setup() {
   new Floor();
   new Cube(0, 4, 0).color = 'tomato';
 }\`;
+const saved = {};                                   // what the sketch saved with storeItem()
 
 window.addEventListener('message', (e) => {
   if (e.source !== frame.contentWindow) return;
   const m = e.data || {};
-  if (m.source === 'preview-storage-request')      // the frame asks for the sketch
-    frame.contentWindow.postMessage({ source: 'preview-storage-init', code: sketch }, '*');
+  if (m.source === 'preview-storage-request')      // the frame asks for the sketch and its saved values
+    frame.contentWindow.postMessage({ source: 'preview-storage-init', code: sketch, data: saved }, '*');
+  if (m.source === 'preview-storage' && m.op === 'set') saved[m.key] = m.value;
   if (m.source === 'preview-error') console.log(m.error.message, 'line', m.error.line);
 });
 </script>` },
@@ -262,14 +320,17 @@ window.addEventListener('message', (e) => {
       { h: 'The messages' },
       { table: { head: ['From', 'Message', 'Meaning'], rows: [
         ['frame to host', '`{ source: \'preview-storage-request\' }`', 'The frame is ready and asks for the sketch.'],
-        ['host to frame', '`{ source: \'preview-storage-init\', code }`', 'The sketch, as a string. Any length.'],
+        ['host to frame', '`{ source: \'preview-storage-init\', code, data }`', '`code` is the sketch, as a string of any length. `data` is what it saved last time: `{ name: \'<json>\' }`, or `{}`. Both are optional.'],
+        ['frame to host', '`{ source: \'preview-storage\', op, key, value }`', 'The sketch saved something. `op` is `\'set\'`, `\'remove\'` or `\'clear\'` (a clear carries `keep: [...]`, key prefixes to leave alone). Keep these and send them back as `data` next time.'],
         ['frame to host', '`{ source: \'preview-ready\' }`', 'The engine started and `setup()` ran.'],
         ['frame to host', '`{ source: \'preview-console\', type, args }`', '`console.log`, `warn`, `error` and `info` from the sketch.'],
         ['frame to host', '`{ source: \'preview-error\', error: { name, message, line, col, snippet } }`', 'The first error, with the line and the code on it.'],
       ] } },
-      'If the host does not answer within 0.4 seconds, the frame falls back to a `?code=<base64url>` in its own address. That works for small sketches only: GitHub Pages refuses addresses much over 6 KB, so use the message.',
+      'If the host does not answer within 0.4 seconds, the frame falls back to a `?code=<base64url>` in its own address (and waits a quarter of a second for saved values). That works for small sketches only: GitHub Pages refuses addresses much over 6 KB, so use the message.',
+      { h: 'Saving' },
+      'A sketch that calls `storeItem()` is **asking you to keep its values**: the frame has no storage of its own. Answer the request with `data`, and keep every `preview-storage` message (the three ops are `set`, `remove` and `clear`). The protocol is the same as moSHion\'s, so a host written for one works for the other. Give each sketch its own store, or two sketches will overwrite each other\'s values. `embed.js` does this: `runSketch(frame, code, { store: localStore(\'my-game\') })` keeps them in localStorage. A page opened on its own, not in a sandboxed frame, needs no host: the engine uses localStorage directly with the prefix `spashial:`.',
       { h: 'A ready-made helper' },
-      'The repository has `embed.js`, which does all of this: `runSketch(iframe, code, { onReady, onLog, onError })` returns an object with `stop()`. The docs and the sandbox use it.',
+      'The repository has `embed.js`, which does all of this: `runSketch(iframe, code, { store, onReady, onLog, onError })` returns an object with `stop()`. The docs and the sandbox use it.',
       { h: 'Hosting your own copy' },
       { list: [
         'Copy these into one folder: `runner.html`, `spashial.js`, `physics.js` and the `vendor/` folder. Nothing else is needed, and there is no build step.',
@@ -284,18 +345,13 @@ window.addEventListener('message', (e) => {
     id: 'planned', group: 'Guides', title: 'Planned, not built yet',
     summary: 'What is not in the engine, so you do not waste an afternoon looking for it.',
     blocks: [
-      'These are things people ask for. **None of them work today.** They are listed here so you know it is the engine and not your code.',
-      { table: { head: ['Planned', 'What you can do today'], rows: [
-        ['Textures (pictures wrapped on a shape)', 'Use `color`, `metalness` and `roughness`.'],
-        ['Sounds', 'Nothing yet.'],
-        ['glTF models', 'Build shapes from `Hull` and `TriangleMesh`, or compose several Solids with a `GlueJoint`.'],
-        ['`Tiles` (a level built from rows of text)', 'Loop over a list and make Solids, as the examples do.'],
-        ['Text labels that float above a Solid', 'Draw text in `drawTop()`.'],
-        ['Saving (`storeItem`, `getItem`)', 'Nothing yet.'],
-        ['Online play (`multiplayer`, `online`)', 'Nothing yet.'],
+      'These are things people ask for. **None of them work today.** They are listed here so you know it is the engine and not your code. (Textures, models, text labels, Tiles, sound, saving and online play are built: they have their own pages.)',
+      { table: { head: ['Not built', 'What you can do today'], rows: [
+        ['Playing with someone on **another computer** on this site', 'Online play works between two tabs of one browser: see [Online play](#/online). A room between computers needs a server, and the public site has none.'],
         ['Terrain from a height map', 'Build a `TriangleMesh` yourself, as the bowl on [Hulls and triangle meshes](#/custom-shapes) does.'],
         ['Vehicles, ragdolls, soft bodies, a character controller', 'Build them from Solids and joints, and a locked-rotation body for a character.'],
         ['Motorised, cone-limited and 6-axis joints', 'The five joints on the [Joints](#/joints) page.'],
+        ['Animated models', 'A model is shown in one still pose. Move its Solid, or swap models.'],
         ['Grouping identical Solids into one draw call', 'Keep the number of Solids down. See [Performance](#/performance).'],
         ['Maths helpers (`map`, `lerp`, `constrain`, `sin`...)', 'Use JavaScript\'s own: `Math.sin`, `Math.min`, `Math.max`.'],
       ] } },
@@ -303,9 +359,9 @@ window.addEventListener('message', (e) => {
         id: 'unknown-property', title: 'An unknown property is quietly ignored',
         code: `function setup() {
   const a = new Cube(0, 0, 0);
-  a.texture = 'coin';                     // accepted, and does nothing
-  console.log('texture reads back as', a.texture);
-  console.log('but nothing was drawn with it: it is still', a.color);
+  a.glow = 5;                             // spaSHial has no glow: accepted, and does nothing
+  console.log('glow reads back as', a.glow);
+  console.log('but nothing was drawn with it: the cube is still', a.color);
 }
 `,
         steps: [{ wait: 10 }],

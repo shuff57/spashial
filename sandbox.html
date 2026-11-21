@@ -52,6 +52,7 @@
     <textarea id="code" spellcheck="false" aria-label="Sketch code"></textarea>
   </div>
   <div class="right">
+    <div id="lobby" class="lobby" role="group" aria-label="Online play"></div>
     <div class="view">
       <!-- an opaque origin: no allow-same-origin, so a sketch cannot reach this page, its storage or cookies -->
       <iframe id="frame" sandbox="allow-scripts allow-downloads allow-modals" allow="autoplay; fullscreen; gamepad; clipboard-write" title="Sketch preview"></iframe>
@@ -60,11 +61,14 @@
   </div>
 </main>
 <script type="module">
-import { runSketch, toBase64Url, fromBase64Url } from './embed.js';
+import { runSketch, renderLobby, localStore, toBase64Url, fromBase64Url } from './embed.js';
 
 const $ = (id) => document.getElementById(id);
-const sel = $('examples'), ta = $('code'), frame = $('frame'), log = $('log'), gutter = $('gutter');
+const sel = $('examples'), ta = $('code'), frame = $('frame'), log = $('log'), gutter = $('gutter'), lobbyEl = $('lobby');
 const KEY = 'spashial:sandbox:code';
+// What a sketch saves with storeItem() is kept here, on this page's origin, and handed back on the next Run.
+// (The sketch's own frame has no storage: it is sandboxed with an opaque origin.)
+const store = localStore('spashial-sandbox-store');
 const EXAMPLES = (window.EXAMPLES = {});
 let current = null;
 
@@ -79,6 +83,8 @@ function runIt() {
   try { localStorage.setItem(KEY, ta.value); } catch {}
   current?.stop();
   current = runSketch(frame, ta.value, {
+    store,
+    onLobby: (view, actions) => renderLobby(lobbyEl, view, actions),     // the bar a sketch asks for with multiplayer()
     onReady: () => line('ok', 'running'),
     onLog: (type, text) => line(type === 'error' ? 'error' : type === 'warn' ? 'warn' : '', text),
     onError: (x) => line('error', `${x.name}: ${x.message}${x.line ? `  (line ${x.line})` : ''}${x.snippet ? `\n    ${x.snippet}` : ''}`),

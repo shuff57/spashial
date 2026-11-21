@@ -614,7 +614,7 @@ function drawTop() {
         steps: [{ wait: 5 }, { press: 'Space' }, { wait: 2 }, { press: 'Space' }, { wait: 2 }],
         expect: () => health === 60,
       } },
-      { note: 'The HUD is a flat 2D layer, so it cannot sit "in" the 3D world. To label a 3D object, draw text at a place you work out yourself. A billboard label that follows a Solid is planned, not built.' },
+      { note: 'The HUD is a flat 2D layer, so it cannot sit "in" the 3D world. To label a 3D object, give it a label: `solid.text = \'score 3\'` floats above it and always faces the camera. See [Text labels](#/labels).' },
     ],
   },
 ];

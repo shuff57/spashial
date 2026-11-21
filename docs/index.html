@@ -52,6 +52,7 @@
   .out { padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .out .hint { margin: 0; color: var(--muted); font-size: 13px; }
   .out .console { max-height: 120px; overflow: auto; }
+  .out .lobby { border: 1px solid var(--border); border-radius: var(--radius); }
   .stage .idle .btn { font-size: 15px; padding: 11px 22px; }
 
   .pager { display: flex; justify-content: space-between; gap: 16px; margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border); }
@@ -93,7 +94,7 @@
 
 <script type="module">
 import { pages, groups, REFERENCE, GLOBALS, GLOBAL_VALUES } from './content/index.mjs';
-import { runSketch } from '../embed.js';
+import { runSketch, renderLobby, localStore } from '../embed.js';
 import { tryCode } from './try-template.mjs';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -131,13 +132,14 @@ function demoCard(d, key) {
   const stage = el('div', { class: 'stage' });
   const idle = el('div', { class: 'idle' }, el('button', { class: 'btn primary', 'aria-label': `Run ${d.title}`, onclick: () => card.run() }, 'Run'));
   stage.append(idle);
+  const lobby = el('div', { class: 'lobby', role: 'group', 'aria-label': 'Online play' });     // the bar a sketch asks for with multiplayer()
   const con = el('div', { class: 'console', 'aria-live': 'polite' });
   const log = (cls, text) => con.append(el('div', { class: cls }, text));
   const card = el('figure', { class: 'demo', id: key ? `demo-${key}` : false },
     el('header', {}, el('h4', {}, d.title),
       el('button', { class: 'btn small', onclick: () => card.run() }, 'Run'),
       el('button', { class: 'btn small', onclick: () => { ta.value = original.code; if (active?.card === card) card.run(); } }, 'Reset')),
-    el('div', { class: 'demo-grid' }, ta, el('div', { class: 'out' }, stage, con, d.hint ? el('p', { class: 'hint' }, d.hint) : null)));
+    el('div', { class: 'demo-grid' }, ta, el('div', { class: 'out' }, lobby, stage, con, d.hint ? el('p', { class: 'hint' }, d.hint) : null)));
   card.run = () => {
     stopActive();
     con.textContent = '';
@@ -145,7 +147,10 @@ function demoCard(d, key) {
     const frame = el('iframe', { title: `${d.title}, running` });
     stage.append(frame);
     idle.hidden = true;
+    // every demo keeps its own saved values (storeItem), so demos never overwrite one another
     const run = runSketch(frame, ta.value, {
+      store: localStore('spashial-docs-store:' + (key || d.title)),
+      onLobby: (view, actions) => renderLobby(lobby, view, actions),
       onReady: () => log('ok', 'running'),
       onLog: (type, text) => log(type === 'error' ? 'error' : type === 'warn' ? 'warn' : '', text),
       onError: (x) => log('error', `${x.name}: ${x.message}${x.line ? `  (line ${x.line})` : ''}${x.snippet ? `\n    ${x.snippet}` : ''}`),

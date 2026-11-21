@@ -82,5 +82,31 @@
     "blurb": "A small still life with shadows. Drag to walk the camera around it.",
     "file": "turntable.js",
     "hint": "Drag with the mouse over the picture."
+  },
+  {
+    "id": "textures",
+    "title": "Textures",
+    "blurb": "Eight patterns drawn in code wrap onto shapes, tinted and repeated.",
+    "file": "textures.js"
+  },
+  {
+    "id": "models",
+    "title": "Models (glTF)",
+    "blurb": "A glTF model built in memory, drawn instead of a shape, with a hull collider.",
+    "file": "models.js"
+  },
+  {
+    "id": "level-from-text",
+    "title": "A level from text (Tiles, sound, labels)",
+    "blurb": "A level written as rows of text, with sound and score labels.",
+    "file": "level-from-text.js",
+    "hint": "Click the picture, then use W A S D."
+  },
+  {
+    "id": "online-two-tabs",
+    "title": "Online (open two tabs)",
+    "blurb": "Two tabs of one browser, each moving a cube you see in the other. No server.",
+    "file": "online-two-tabs.js",
+    "hint": "Open this page in a second tab. Host in one, join with the code in the other, click the picture, then use W A S D."
   }
 ]

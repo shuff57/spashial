@@ -27,11 +27,11 @@ function update() {
 ## Try it
 
 - **[The live site](https://spashial.lefthanddev.com/)** has a demo gallery.
-- **[The sandbox](https://spashial.lefthanddev.com/sandbox.html)** is an editor with 13 examples.
+- **[The sandbox](https://spashial.lefthanddev.com/sandbox.html)** is an editor with 17 examples.
   *Copy link* puts the whole sketch in the address, so anyone can open it.
-- **[The docs](https://spashial.lefthanddev.com/docs/)** have 26 pages and about 90 demos you can run
-  and change, one for every kind of interaction: shapes, physics, forces, touching, joints, keyboard,
-  mouse, ray casts, camera, lights and the HUD.
+- **[The docs](https://spashial.lefthanddev.com/docs/)** have 33 pages and about 115 demos you can run
+  and change, one for every kind of interaction: shapes, textures, models, levels from text, physics,
+  forces, touching, joints, keyboard, mouse, ray casts, camera, lights, sound, saving and the HUD.
 
 ## Run it on your computer
 
@@ -81,22 +81,30 @@ Built and tested: six shapes plus `Hull` and `TriangleMesh`; colliders (`dynamic
 `kinematic`, `none`); gravity, bounce, friction, drag, gravity scale, speed limits and continuous
 collision; forces, impulses and torque; touch verbs; groups; hinge, ball, distance, slider and glue
 joints; collision groups; ray casts; keyboard and mouse; follow, orbit and free cameras; ambient, sun,
-point and spot lights with shadows; a 2D layer for scores and bars.
+point and spot lights with shadows; a 2D layer for scores and bars; **textures** (eight patterns drawn
+in code, or your own pictures); **glTF models**; **text labels** that float above a solid; **`Tiles`**,
+a level built from rows of text; **sound** (eight built-in sounds made in code, your own files, and
+`playAt` for sound from a place); **saving** (`storeItem`, `getItem`); `solid.debug`, which draws
+what really collides; and **online play** (`multiplayer`, `online`: rooms, moves and shared bodies) between
+two tabs of one browser, with no server.
 
-**Not built yet:** textures, sounds, glTF models, `Tiles`, text labels on a Solid, saving, online
-play, height-map terrain, vehicles, ragdolls, motorised joints. Setting a property the engine does not
-know (`solid.texture = 'coin'`) is quietly ignored, so check [Planned](docs/content/04-guides.mjs)
-before suspecting your code. Graphics speed on integrated graphics has not been measured; physics has
-(about 3 ms a step at 400 awake bodies on a fast desktop CPU).
+**Not built yet:** online play between two *computers* (a room needs a server, and this site has none: the
+online play above works between two tabs of the same browser, and the tab that hosts is the room),
+height-map terrain, vehicles, ragdolls, motorised joints and model animations. Setting a property the engine does not know (`solid.glow = 5`) is quietly
+ignored, so check the [reference](docs/content/reference-data.mjs) before suspecting your code. Graphics
+speed on integrated graphics has not been measured; physics has (about 3 ms a step at 400 awake bodies
+on a fast desktop CPU).
 
 ## What is in this repository
 
 | Path | What it is |
 | --- | --- |
 | `spashial.js` | The engine's sketch API on top of three.js: `Solid`, `Group`, `world`, `camera`, lights, input, the loop. |
+| `textures.js`, `sound.js` | The built-in texture patterns (drawn in code) and the sound system (Web Audio, with the eight built-in sounds synthesised in code). |
+| `online.js`, `online-local-host.js` | Online play: the sketch's half, and the host page's half with no server (two tabs of one browser). |
 | `physics.js` | The **only** file that talks to Jolt. It knows nothing about three.js. |
 | `runner.html` | The sandboxed page a sketch runs in. |
-| `vendor/` | Jolt (WebAssembly, single-threaded) and three.js, with their licences. Refresh with `npm run vendor`. |
+| `vendor/` | Jolt (WebAssembly, single-threaded) and three.js with its glTF loader, with their licences. Refresh with `npm run vendor`. |
 | `index.html`, `sandbox.html`, `site.css`, `embed.js` | The landing page, the editor, the shared styles and the helper that runs a sketch in a frame. |
 | `docs/` | The docs site. `docs/content/` is the pages; `docs/spashial.d.ts` is the typings. See [docs/README.md](docs/README.md). |
 | `demos/` | Standalone sketches. `demos/index.json` lists them for the sandbox and the landing page. |
@@ -113,6 +121,8 @@ npm test
 | Test | What it checks |
 | --- | --- |
 | `tests/physics.test.mjs` | The Jolt layer, in Node: resting heights, joints, ray casts, collision groups, meshes (147 tests). |
+| `tests/sound.test.mjs` | The sound system, in Node, against a fake Web Audio (57 tests). |
+| `tests/online.test.mjs` | Online play, in Node: the sketch half wired to the host half over a real BroadcastChannel (92 tests; 2 more compare with shCode files and are skipped here). |
 | `tests/docs.test.mjs` | The docs agree with themselves, with `docs/spashial.d.ts` and with the running engine: every documented name exists and every documented default is true. |
 | `tests/browser.test.mjs` | The engine in a real browser, from inside the sandboxed frame: the sketch API, errors with line numbers, input, quality, shadows, every example. |
 | `tests/docs-demos.test.mjs` | Every docs demo, every "Try it" row and every standalone demo: runs it, performs its key presses and clicks, and checks the claim its page makes. |
