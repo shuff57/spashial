@@ -64,7 +64,7 @@ t.check('no leftover Mesh or Asset names in the docs (the 3D object is a Solid)'
 // ---------------------------------------------------------------- 2. reference <-> typings
 t.section('the reference and docs/spashial.d.ts');
 const SOURCE = { // reference object -> its declaration in the typings
-  Solid: 'class Solid', Group: 'class Group', Hull: 'class Hull', TriangleMesh: 'class TriangleMesh',
+  Solid: 'class Solid', Group: 'class Group', Hull: 'class Hull', TriangleMesh: 'class TriangleMesh', Sound: 'class Sound', online: 'const online',
   HingeJoint: 'class HingeJoint', BallJoint: 'class BallJoint', DistanceJoint: 'class DistanceJoint', SliderJoint: 'class SliderJoint', GlueJoint: 'class GlueJoint',
   world: 'interface World', camera: 'interface Camera', kb: 'interface Kb', mouse: 'interface Mouse',
   ambientLight: 'interface AmbientLight', sunLight: 'interface SunLight', PointLight: 'class PointLight', SpotLight: 'class SpotLight',
@@ -82,7 +82,11 @@ for (const st of sf.statements) {
     decls.set(st.name.text, { own, base });
     topLevel.push(st.name.text);
   } else if (ts.isFunctionDeclaration(st)) topLevel.push(st.name.text);
-  else if (ts.isVariableStatement(st)) st.declarationList.declarations.forEach((d) => topLevel.push(d.name.text));
+  else if (ts.isVariableStatement(st)) st.declarationList.declarations.forEach((d) => {
+    topLevel.push(d.name.text);
+    // `declare const online: { ... }` is an object type, not a class: read its members the same way
+    if (d.type && ts.isTypeLiteralNode(d.type)) decls.set(d.name.text, { own: new Set(d.type.members.filter((m) => m.name && ts.isIdentifier(m.name)).map((m) => m.name.text)), base: undefined });
+  });
   else if (ts.isTypeAliasDeclaration(st)) topLevel.push(st.name.text);
 }
 const ownMembers = (name) => decls.get(name)?.own ?? null;
@@ -100,7 +104,7 @@ for (const o of REFERENCE) {
 }
 const known = new Set([...REFERENCE.map((o) => o.object), ...GLOBALS.map((g) => g.name), ...GLOBAL_VALUES.map((g) => g.name),
   'setup', 'update', 'draw', 'drawTop', 'preload', 'Vector', 'Cube', 'Sphere', 'Cylinder', 'Capsule', 'Cone', 'Torus', 'Floor', 'Joint', 'World', 'Camera', 'Kb', 'Mouse', 'AmbientLight', 'SunLight', 'RayHit', 'SolidMouse',
-  'LEFT', 'RIGHT', 'CENTER', 'STATIC', 'DYNAMIC', 'KINEMATIC', 'Vec3', 'Vec3Like', 'Collider', 'SolidShape']);
+  'LEFT', 'RIGHT', 'CENTER', 'STATIC', 'DYNAMIC', 'KINEMATIC', 'Vec3', 'Vec3Like', 'Collider', 'SolidShape', 'SoundClips', 'MultiplayerMode']);
 const undocumented = topLevel.filter((n) => !known.has(n));
 t.check('every global declared in the typings is documented somewhere', !undocumented.length, undocumented);
 
@@ -118,7 +122,7 @@ try {
   const spec = REFERENCE.map((o) => ({ object: o.object, rows: o.members.map((m) => ({ name: m.name, kind: m.kind, def: m.default })) }));
   const out = await frame.evaluate((spec) => {
     const protos = { Solid, Group, Hull, TriangleMesh, HingeJoint, BallJoint, DistanceJoint, SliderJoint, GlueJoint, PointLight, SpotLight };
-    const objs = { world, camera, kb, mouse, ambientLight, sunLight };
+    const objs = { world, camera, kb, mouse, ambientLight, sunLight, online, Sound: loadSound('coin') };   // Sound is checked on an instance (some members are per-instance)
     const has = (o, n) => { for (let p = o; p && p !== Object.prototype && p !== Array.prototype; p = Object.getPrototypeOf(p)) if (Object.getOwnPropertyNames(p).includes(n)) return true; return false; };
     const same = (a, b) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-6);
     const missing = [], wrong = [];

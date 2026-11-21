@@ -1,6 +1,7 @@
 // The three pages people use, in a real browser: the landing page, the docs site and the sandbox.
 //   node tests/docs-site.test.mjs
 // (The demos' own behaviour is tests/docs-demos.test.mjs; this is the page around them.)
+import { readFileSync } from 'node:fs';
 import { pages } from '../docs/content/index.mjs';
 import { start, reporter } from './launch.mjs';
 
@@ -33,7 +34,8 @@ try {
     const f = await running(page);
     t.check('the hero starts the wrecking ball by itself', (await frameCount(f)) >= 5);
     t.check('the hero frame is sandboxed with an opaque origin', (await page.getAttribute('#heroStage iframe', 'sandbox')) === 'allow-scripts allow-downloads allow-modals' && (await f.evaluate(() => self.origin)) === 'null');
-    t.check('the picker lists every demo in demos/index.json', (await page.locator('#list button').count()) === 13, await page.locator('#list button').count());
+    const listed = JSON.parse(readFileSync(new URL('../demos/index.json', import.meta.url), 'utf8')).length;
+    t.check(`the picker lists every demo in demos/index.json (${listed})`, (await page.locator('#list button').count()) === listed, await page.locator('#list button').count());
     await page.click('#list button >> text=Dominoes');
     await page.waitForFunction(() => document.querySelectorAll('iframe').length === 1 && document.querySelector('#galleryStage iframe'), null, { timeout: 60000 });
     t.check('choosing a demo stops the hero, so only one sketch runs', (await page.locator('iframe').count()) === 1 && (await page.locator('#heroStage iframe').count()) === 0);

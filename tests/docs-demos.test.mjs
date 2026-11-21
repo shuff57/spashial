@@ -30,6 +30,9 @@ const FILE_CHECKS = {
   dominoes: { steps: [{ wait: 30 }, { press: 'Space' }, { wait: 800 }], expect: () => dominoes.filter((d) => d.y < 0.7).length > 18 },
   bowling: { steps: [{ wait: 30 }, { press: 'Space' }, { wait: 200 }], expect: () => pins.filter((p) => p.y < 0.5 || Math.abs(p.rotation.x) > 40 || Math.abs(p.rotation.z) > 40).length >= 3 },
   turntable: { steps: [{ wait: 10 }, { move: 'center' }, { mdown: true }, { move: { fx: 0.8, fy: 0.5 } }, { wait: 3 }, { mup: true }, { wait: 5 }], expect: () => Math.abs(camera.x) > 1 },
+  textures: { steps: [{ wait: 60 }], expect: () => [...__spashial.solids].filter((s) => s.texture).length >= 5 },
+  models: { steps: [{ wait: 260 }], expect: () => [...__spashial.solids].filter((s) => s.model === 'crystal').length === 2 },
+  'level-from-text': { steps: [{ click: 'center' }, { wait: 30 }, { down: 'd' }, { down: 'w' }, { wait: 60 }, { up: 'd' }, { up: 'w' }, { wait: 5 }], expect: () => score >= 1 },
   'walk-and-jump': { steps: [{ wait: 60 }, { down: 'd' }, { wait: 30 }, { up: 'd' }], expect: () => player.x > 1.5 },
   tower: { steps: [{ wait: 60 }, { press: 'Space' }, { wait: 200 }], expect: () => [...__spashial.solids].some((s) => s._collider === 'dynamic' && Math.abs(s.x) > 1.5) },
 };
@@ -62,11 +65,17 @@ async function perform(page, frame, steps) {
     else if (s.click) { const [x, y] = at(s.click); await page.mouse.click(x, y, { button: s.button ?? 'left' }); }
     else if (s.mdown) await page.mouse.down();
     else if (s.mup) await page.mouse.up();
+    else if (s.rerun) { // press Run again: what the first run saved must be there for the second
+      await page.click('#run');
+      await page.waitForFunction(() => document.getElementById('log').innerText.trim() === 'running', null, { timeout: 90000 });
+      await waitFrames(frame, 5, 90000);
+    }
     else throw new Error('unknown step ' + JSON.stringify(s));
   }
 }
 
 async function runJob(page, job) {
+  await page.evaluate(() => localStorage.clear());   // the sandbox page is the host that keeps saved values: start each demo with none
   await page.fill('#code', job.code);
   await page.click('#run');
   await page.waitForFunction(() => document.getElementById('log').innerText.length > 0, null, { timeout: 120000 });
@@ -97,10 +106,49 @@ async function runJob(page, job) {
   return ok ? { ok: true } : { ok: false, detail: `expect() was ${JSON.stringify(ok)}; frameCount ${await frame.evaluate(() => window.frameCount).catch(() => '?')}` };
 }
 
-const queue = [...todo];
+// Online demos need TWO tabs: open two sandbox pages in one browser, host a room in the first and join it from
+// the second (the way a person would, through the lobby bar), run `steps` in the first tab and `stepsB` in the
+// second, then run `expect` in BOTH. They run one at a time, after the rest: tabs of one browser share a
+// BroadcastChannel, so two online demos at once could hear each other's rooms.
+async function runTwoTabs(job) {
+  const a = await env.page(), b = await env.page();
+  try {
+    for (const p of [a, b]) {
+      await p.goto(env.base + '/sandbox.html');
+      await p.evaluate(() => window.examplesReady);
+      await p.fill('#code', job.code);
+      await p.click('#run');
+    }
+    await a.waitForSelector('#lobby.on', { timeout: 90000 });
+    await a.click('#lobby button:has-text("Host a game")');
+    await a.waitForSelector('#lobby .code', { timeout: 60000 });
+    const room = await a.innerText('#lobby .code');
+    await b.waitForSelector('#lobby.on', { timeout: 90000 });
+    await b.fill('#lobby input', room);
+    await b.click('#lobby button:has-text("Join")');
+    const fa = runnerOf(a), fb = runnerOf(b);
+    for (const f of [fa, fb]) await f.waitForFunction(() => online.status === 'ready', null, { timeout: 60000 });
+    await Promise.all([perform(a, fa, job.steps ?? [{ wait: 60 }]), perform(b, fb, job.stepsB ?? [{ wait: 60 }])]);
+    await waitFrames(fa, 30, 90000);                                  // let the last messages arrive
+    const results = [];
+    for (const [name, f, p] of [['tab 1 (host)', fa, a], ['tab 2 (guest)', fb, b]]) {
+      let ok; try { ok = await f.evaluate(job.expect); } catch (e) { return { ok: false, detail: `${name}: expect threw: ${e.message.split('\n')[0]}` }; }
+      const bad = (await p.innerText('#log')).split('\n').filter((l) => /error/i.test(l));
+      if (bad.length) return { ok: false, detail: `${name}: error in the log: ${bad[0].slice(0, 160)}` };
+      results.push(ok);
+    }
+    return results.every(Boolean) ? { ok: true } : { ok: false, detail: `expect() was ${JSON.stringify(results)} in tab 1 and tab 2` };
+  } finally { await a.close(); await b.close(); }
+}
+
+const queue = todo.filter((j) => j.tabs !== 2);
+const twoTabJobs = todo.filter((j) => j.tabs === 2);
 const started = Date.now();
 async function worker(n) {
-  const page = await env.page();
+  // Each worker has its OWN browser context: the sandbox page keeps a sketch's saved values in localStorage, and
+  // pages of one context share it, so one worker's clear would wipe another's demo mid-run.
+  const ctx = await env.browser.newContext({ viewport: { width: 1280, height: 760 } });
+  const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log(`  (page error in worker ${n}: ${e.message})`));
   await page.goto(env.base + '/sandbox.html');
   await page.evaluate(() => window.examplesReady);
@@ -111,8 +159,16 @@ async function worker(n) {
     try { r = await runJob(page, job); } catch (e) { r = { ok: false, detail: `harness: ${e.message.split('\n')[0]}` }; }
     t.check(`${job.kind}: ${job.name}   (${((Date.now() - t0) / 1000).toFixed(0)}s)`, r.ok, r.detail ?? '');
   }
+  await ctx.close();
 }
-try { await Promise.all(Array.from({ length: CONC }, (_, i) => worker(i + 1))); }
+try {
+  await Promise.all(Array.from({ length: CONC }, (_, i) => worker(i + 1)));
+  for (const job of twoTabJobs) {
+    const t0 = Date.now();
+    let r; try { r = await runTwoTabs(job); } catch (e) { r = { ok: false, detail: `harness: ${e.message.split('\n')[0]}` }; }
+    t.check(`${job.kind} (two tabs): ${job.name}   (${((Date.now() - t0) / 1000).toFixed(0)}s)`, r.ok, r.detail ?? '');
+  }
+}
 finally { await env.close(); }
 console.log(`\n${todo.length} demos in ${((Date.now() - started) / 60000).toFixed(1)} minutes`);
 t.done();

@@ -36,19 +36,39 @@ const runner = (page) => page.frames().find((f) => f.url().includes('runner.html
 async function run(page, code, frames = 1, timeout = T) {
   await page.fill('#code', code);
   await page.click('#run');
-  await page.waitForFunction("document.getElementById('log').innerText.length > 0", null, { timeout });
+  // Wait for the run's own outcome ('running', or an error), not just any text: messages the PREVIOUS
+  // sketch posted late (e.g. three.js warnings after a bad texture) land in the cleared log too, and
+  // would otherwise be taken for this run having started.
+  await page.waitForFunction("(() => { const t = document.getElementById('log').innerText; return t.includes('running') || /rror|\\(line \\d+\\)/.test(t); })()", null, { timeout });
   // The sandbox points the iframe at about:blank and then at the runner; the log can fill a moment
   // before Playwright sees the runner's frame, so wait for it rather than finding null.
-  const f = await runnerFrame(page, timeout);
+  let f = await runnerFrame(page, timeout);
   if ((await page.innerText('#log')).includes('running') && frames) {
-    await f.waitForFunction(`window.frameCount >= ${frames}`, null, { timeout });
+    // Also wait for the engine global: right after a re-point, Playwright can briefly hand back the
+    // frame the log message came from before its document is the new runner (seen once as
+    // "__spashial is not defined"). Retry against the current runner frame until it is live.
+    const end = Date.now() + timeout;
+    for (;;) {
+      try {
+        f = await runnerFrame(page, timeout);
+        await f.waitForFunction(`window.__spashial && window.frameCount >= ${frames}`, null, { timeout: Math.max(1000, end - Date.now()) });
+        break;
+      } catch (err) {
+        if (Date.now() > end) throw err;
+        await page.waitForTimeout(100);
+      }
+    }
   }
   return f;
 }
 async function runnerFrame(page, timeout = T) {
+  // The runner frame of the CURRENT Run: the sandbox gives each Run its own ?r=<serial> url in the
+  // iframe's src attribute (about:blank first, then the runner), and after a re-point Playwright can
+  // still list the previous run's frame, so match on the exact url rather than "contains runner.html".
   const end = Date.now() + timeout;
   for (;;) {
-    const f = runner(page);
+    const src = await page.getAttribute('#frame', 'src');
+    const f = page.frames().find((fr) => fr !== page.mainFrame() && src && fr.url() === src && src.includes('runner.html'));
     if (f) return f;
     if (Date.now() > end) throw new Error('the runner frame never appeared');
     await page.waitForTimeout(50);
@@ -157,6 +177,7 @@ function setup() {
   __r.gravity = [world.gravity.x, world.gravity.y, world.gravity.z];
 }
 function update() { if (frameCount === 60) __r.x60 = __a.x; }`, 62);
+  let e;
   let r = await f.evaluate(() => window.__r);
   chk("pos accepts an array and a live component (4,5,6 then y += 1)", eq(r.pos, [4, 6, 6]), r.pos);
   chk("pos.set moves all three", eq(r.pos2, [1, 1, 1]), r.pos2);
@@ -287,6 +308,275 @@ function update() { if (frameCount === 60) __r.x60 = __a.x; }`, 62);
     ['fr', 'bo', 'ma', 'op', 'me', 'fov', 'li'].every((k) => r[k].includes('must be a number')) && r.fr2.includes('cannot be below 0') && r.de.includes('must be above 0') && r.fov2.includes('between 0 and 180'), r);
   chk("opacity above 1 is still held at 1", r.ok === 1, r);
 
+  const GLB_JS = String.raw`// Builds a tiny .glb in memory so this example needs no file. A real sketch uses a .glb file:
+// solid.model = 'https://.../ship.glb', or registerModel('ship', url) then solid.model = 'ship'.
+function makeGlb(tris) {
+  const pos = new Float32Array(tris.length * 9), nor = new Float32Array(tris.length * 9);
+  tris.forEach((t, i) => {
+    const [a, b, c] = t, u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const len = Math.hypot(...n) || 1; n = n.map((x) => x / len);
+    t.forEach((p, k) => { pos.set(p, i * 9 + k * 3); nor.set(n, i * 9 + k * 3); });
+  });
+  const bin = new Uint8Array(pos.byteLength * 2);
+  bin.set(new Uint8Array(pos.buffer), 0); bin.set(new Uint8Array(nor.buffer), pos.byteLength);
+  const all = tris.flat(), count = tris.length * 3;
+  const min = [0, 1, 2].map((k) => Math.min(...all.map((p) => p[k]))), max = [0, 1, 2].map((k) => Math.max(...all.map((p) => p[k])));
+  const json = JSON.stringify({ asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.4, 0.9, 1, 1], metallicFactor: 0.3, roughnessFactor: 0.4 } }],
+    buffers: [{ byteLength: bin.length }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: pos.byteLength }, { buffer: 0, byteOffset: pos.byteLength, byteLength: nor.byteLength }],
+    accessors: [{ bufferView: 0, componentType: 5126, count, type: 'VEC3', min, max }, { bufferView: 1, componentType: 5126, count, type: 'VEC3' }] });
+  const jb = new TextEncoder().encode(json + ' '.repeat((4 - json.length % 4) % 4)), total = 20 + jb.length + 8 + bin.length;
+  const out = new DataView(new ArrayBuffer(total));
+  out.setUint32(0, 0x46546C67, true); out.setUint32(4, 2, true); out.setUint32(8, total, true);
+  out.setUint32(12, jb.length, true); out.setUint32(16, 0x4E4F534A, true); new Uint8Array(out.buffer).set(jb, 20);
+  out.setUint32(20 + jb.length, bin.length, true); out.setUint32(24 + jb.length, 0x004E4942, true); new Uint8Array(out.buffer).set(bin, 28 + jb.length);
+  return URL.createObjectURL(new Blob([out.buffer]));
+}
+// A crystal: two pyramids base to base, as triangles (three corners each).
+function crystal() {
+  const top = [0, 1.5, 0], bottom = [0, -1.5, 0], r = [[1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 0, -1]], t = [];
+  for (let i = 0; i < 4; i++) { t.push([top, r[(i + 1) % 4], r[i]]); t.push([bottom, r[i], r[(i + 1) % 4]]); }
+  return t;
+}
+`;
+  section("models (glTF)");
+  r = await result(GLB_JS + String.raw`
+    function preload() { registerModel('crystal', makeGlb(crystal())); window.__early = loadModel('crystal').ready; }
+    function setup() {
+      const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+      const a = new Solid(0, 2, 0, 1.6, 2.4, 1.6); const before = { vis: a._material.visible, model: a.model };
+      a.model = 'crystal';
+      const out = { early: window.__early, atSetup: loadModel('crystal').ready, names: modelNames(), before, drawn: a._modelObj !== null, shapeHidden: a._material.visible === false,
+        scale: a._modelObj.scale.x, centred: a._modelObj.position.length(), model: a.model };
+      out.errs = { unknown: t(() => { a.model = 'nope'; }), type: t(() => { a.model = 5; }), noModelHull: t(() => { new Solid(0, 0, 0).shape = 'hull'; }), still: a.model };
+      const c = a.clone(); out.clone = c.model;
+      const g = new Group(); const m = g.newSolid(5, 0, 0); g.model = 'crystal'; out.group = [m.model, m._modelObj !== null];
+      a.shape = 'hull';
+      const pts = a._rec.def.points; let hi = [-9, -9, -9], lo = [9, 9, 9]; for (const p of pts) for (let k = 0; k < 3; k++) { hi[k] = Math.max(hi[k], p[k]); lo[k] = Math.min(lo[k], p[k]); }
+      out.hull = { shape: a.shape, n: pts.length, size: hi.map((v, k) => +(v - lo[k]).toFixed(2)), wh: [a.w, a.h, a.d].map((v) => +v.toFixed(2)), still: a._modelObj !== null };
+      a.model = null; out.cleared = [a.model, a._modelObj, a._material.visible];
+      window.__r = out; }`, 3);
+  chk("loadModel is NOT ready at the start of preload() and IS by setup(); registerModel shows in modelNames()", r.early === false && r.atSetup === true && eq(r.names, ['crystal']), r);
+  chk("a model draws instead of the shape (shape hidden), fitted into the box and centred",
+    r.drawn && r.shapeHidden && Math.abs(r.scale - 0.8) < 1e-6 && r.centred < 1e-6 && r.model === 'crystal' && eq(r.before, { vis: true, model: null }), r);
+  e = r.errs;
+  chk("a wrong model explains itself and changes nothing",
+    e.unknown.includes("no model called 'nope'") && e.unknown.includes('registerModel') && e.type.includes('model must be a name') && e.noModelHull.includes("shape = 'hull' wraps a model") && e.still === 'crystal', e);
+  chk("a clone and a Group keep the model", r.clone === 'crystal' && eq(r.group, ['crystal', true]), r);
+  const hl = r.hull;
+  chk("shape = 'hull' wraps the model (a hull from its own points, sized to the fitted crystal) and the model still draws",
+    hl.shape === 'hull' && hl.n >= 6 && eq(hl.size, [1.6, 2.4, 1.6]) && eq(hl.wh, [1.6, 2.4, 1.6]) && hl.still, hl);
+  chk("model = null goes back to drawing the shape", eq(r.cleared, [null, null, true]), r.cleared);
+
+  r = await result("function setup() { const a = new Solid(0, 2, 0); a.model = 'data:model/gltf-binary;base64,AAAA'; window.__r = { model: a.model, vis: a._material.visible }; }", 2);
+  await page.waitForTimeout(1000);
+  chk("a model that cannot be loaded says so in plain words and the shape stays", (await log(page)).includes('could not be loaded') && (await log(page)).includes('running') && r.vis === true, await log(page));
+
+  section("sound (a real browser AudioContext)");
+  r = await result(String.raw`function wavUrl() { const n = 4410, rate = 44100, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin(i * 2 * Math.PI * 440 / rate) * 12000, true);
+      return URL.createObjectURL(new Blob([buf])); }
+    let beep; function preload() { registerSound('beep', wavUrl()); beep = loadSound('beep'); window.__early = beep.loaded; }
+    function setup() { const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+      const coin = loadSound('coin'); window.__snd = beep; window.__coin = coin;
+      window.__r = { early: window.__early, atSetup: beep.loaded, dur: +beep.duration.toFixed(3), coinDur: +coin.duration.toFixed(2), names: soundNames(),
+        errs: { unknown: t(() => loadSound('nope')), vol: t(() => { beep.volume = 'loud'; }), rate: t(() => { beep.rate = 0; }), reg: t(() => registerSound('x')) }, master: masterVolume() }; }`, 2);
+  chk("a registered sound file is NOT loaded at the start of preload() and IS by setup() (a real decode)", r.early === false && r.atSetup === true && Math.abs(r.dur - 0.1) < 0.002, r);
+  chk("the built-in sounds are made in code (coin has a real length) and soundNames lists them with registered ones",
+    0.1 < r.coinDur && r.coinDur < 1.0 && eq(r.names, ['beep', 'blip', 'coin', 'explode', 'hit', 'jump', 'laser', 'pop', 'thud']), r);
+  e = r.errs;
+  chk("wrong sound arguments explain themselves", e.unknown.includes("no sound called 'nope'") && e.unknown.includes("'coin'") && e.vol.includes('volume must be a number') && e.rate.includes('rate') && e.reg.includes('registerSound'), e);
+  await page.locator('#frame').click(); await page.waitForTimeout(300);
+  const st = await (await runnerFrame(page)).evaluate(() => { const s = window.__snd, c = window.__coin; const out = {};
+    out.play = typeof s.play(); out.playing = s.playing; out.blocked = s.blocked;
+    s.stop(); out.stopped = !s.playing;
+    s.loop(); out.looping = s.playing; s.pause(); out.paused = [s.paused, s.playing]; s.stop();
+    const where = { x: 3, y: 0, z: 0 }; c.playAt(where); c.playAt(1, 2, 3); c.playAt([0, 0, -50]); out.at = c.playing;
+    s.volume = 0.4; s.pan = -0.5; s.rate = 1.5; out.set = [s.volume, s.pan, s.rate];
+    s.fade(0, 0.2); masterVolume(0.5); out.master = masterVolume();
+    return out; });
+  chk("after the first click a sound plays, loops, pauses and stops, and the browser did not block it", st.play === 'object' && st.playing && st.blocked === false && st.stopped && st.looping && eq(st.paused, [true, false]), st);
+  chk("playAt takes numbers, a list or a Solid; volume, pan, rate, fade and masterVolume work", st.at === true && eq(st.set, [0.4, -0.5, 1.5]) && st.master === 0.5, st);
+
+  section("saving (storeItem / getItem) and the collider outline (debug)");
+  // the host page keeps saved values in localStorage; start clean so the section is repeatable
+  await page.evaluate(() => { try { localStorage.clear(); } catch {} });
+  r = await result(String.raw`function setup() {
+    const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+    storeItem('n', 7); storeItem('s', 'hi'); storeItem('o', { a: [1, 2, { b: 'x' }], flag: true }); storeItem('hiscore', 42);
+    const circ = {}; circ.me = circ;
+    window.__r = { n: getItem('n'), s: getItem('s'), o: getItem('o'), missing: getItem('nope'), type: typeof getItem('n'),
+      errs: { fn: t(() => storeItem('f', () => 1)), undef: t(() => storeItem('u', undefined)), circ: t(() => storeItem('c', circ)), name: t(() => storeItem(5, 1)), big: t(() => storeItem('big', 'x'.repeat(120000))), get: t(() => getItem()) } };
+    removeItem('s'); window.__r.removed = getItem('s'); window.__r.kept = getItem('n'); }`, 2);
+  chk("storeItem saves numbers, text, lists and objects and getItem reads them back (null when missing)", r.n === 7 && r.s === 'hi' && eq(r.o, { a: [1, 2, { b: 'x' }], flag: true }) && r.missing === null && r.type === 'number', r);
+  chk("removeItem forgets one value and keeps the others", r.removed === null && r.kept === 7, r);
+  e = r.errs;
+  chk("things that cannot be saved explain themselves",
+    e.fn.includes('cannot save a function') && e.undef.includes('cannot save undefined') && e.circ.includes('refers to itself') && e.name.includes('needs a name') && e.big.includes('too big to save') && e.get.includes('needs a name'), e);
+  r = await result("function setup() { window.__r = { hiscore: getItem('hiscore'), n: getItem('n'), o: getItem('o') }; storeItem('plain', 1); storeItem('texture:art', 'data:x'); }", 2);
+  chk("a value saved in one Run is there in the next (the host page keeps it)", r.hiscore === 42 && r.n === 7 && r.o.flag === true, r);
+  r = await result("function setup() { clearStorage(); window.__r = { plain: getItem('plain'), hiscore: getItem('hiscore'), art: getItem('texture:art') }; }", 2);
+  chk("clearStorage forgets saved values but never the student's art (texture:, sound:, font:, model: ...)", r.plain === null && r.hiscore === null && r.art === 'data:x', r);
+  r = await result("function setup() { window.__r = { plain: getItem('plain'), art: getItem('texture:art') }; }", 2);
+  chk("and that holds in the next Run too (the host applied the same clear)", r.plain === null && r.art === 'data:x', r);
+
+  r = await result(String.raw`let a, c; function setup() {
+    const lines = () => __spashial.scene.children.filter((o) => o.isLineSegments);
+    a = new Cube(0, 4, 0, 1); const none = lines().length; a.debug = true; const one = lines().length;
+    const verts = lines()[0].geometry.getAttribute('position').count;
+    const tor = new Torus(5, 0, 0); tor.debug = true; const torusVerts = lines()[1].geometry.getAttribute('position').count;
+    const h = new Hull(8, 0, 0, [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1], [0, 1.4, 0]]); h.debug = true; const three = lines().length;
+    window.__s = { none, one, verts, torusVerts, three }; world.gravity.y = -10; new Floor(); }
+    function update() { if (frameCount === 20) { const l = __spashial.scene.children.filter((o) => o.isLineSegments)[0];
+      window.__r = { ...window.__s, follows: Math.abs(l.position.y - a._mesh.position.y) < 1e-6, moved: a.y < 3.5, scaleFree: l.scale.x === 1 };
+      a.scale = 3; a.debug = false; window.__r.off = __spashial.scene.children.filter((o) => o.isLineSegments).length; } }`, 22);
+  chk("debug draws the collider as green lines (a box, a torus ring of capsules, a hull) and turning it off removes them", r.none === 0 && r.one === 1 && r.verts > 0 && r.torusVerts > r.verts && r.three === 3 && r.off === 2, r);
+  chk("the outline follows the solid as it falls and does not take the visual scale", r.follows && r.moved && r.scaleFree, r);
+
+  section("online play between two tabs (no server: BroadcastChannel)");
+  const octx = await env.browser.newContext({ viewport: { width: 1280, height: 760 } });
+  const t1 = await octx.newPage(), t2 = await octx.newPage();
+  for (const t of [t1, t2]) {
+    await t.goto(URL);
+    await t.evaluate(() => window.examplesReady);
+    await t.selectOption('#examples', { label: 'Online (open two tabs)' });
+    await t.waitForFunction("(() => { const x = document.getElementById('log').innerText; return x.includes('running') || /rror/.test(x); })()", null, { timeout: 90000 });
+  }
+  const of1 = await runnerFrame(t1, 90000), of2 = await runnerFrame(t2, 90000);
+  await of1.waitForFunction('window.frameCount >= 5', null, { timeout: 90000 }); await of2.waitForFunction('window.frameCount >= 5', null, { timeout: 90000 });
+  chk("multiplayer('coop', 2) shows the lobby bar above the picture", (await t1.locator('#lobby.on').count()) === 1 && (await t1.innerText('#lobby')).includes('Host a game'), await t1.innerText('#lobby'));
+  await t1.click('#lobby >> text=Host a game');
+  await t1.waitForFunction("document.querySelector('#lobby .code')", null, { timeout: 20000 });
+  const code = await t1.innerText('#lobby .code');
+  chk("hosting gives a 4-letter room code and a seat", code.length === 4 && (await t1.innerText('#lobby')).includes('seat 1 of 2'), await t1.innerText('#lobby'));
+  await t2.fill('#lobby input', code.toLowerCase()); await t2.click('#lobby >> text=Join');
+  await t2.waitForFunction("document.querySelector('#lobby .code')", null, { timeout: 20000 });
+  for (const fr of [of1, of2]) await fr.waitForFunction("online.status === 'ready'", null, { timeout: 20000 });
+  const sts = [];
+  for (const fr of [of1, of2]) sts.push(await fr.evaluate(() => ({ status: online.status, code: online.code, seat: online.seat, seats: online.seats })));
+  chk("the second tab joins by code: both are ready, same code, seats 0 and 1", sts[0].status === 'ready' && sts[1].status === 'ready' && sts[0].code === code && sts[1].code === code && eq([sts[0].seat, sts[1].seat], [0, 1]), sts);
+  await of1.evaluate(() => { window.__moves = []; online.onMove((m, seat) => window.__moves.push([m.n, seat])); });
+  await of2.evaluate(() => { window.__moves = []; online.onMove((m, seat) => window.__moves.push([m.n, seat])); });
+  await of1.evaluate(() => { online.send({ n: 1 }); online.send({ n: 3 }); }); await of2.evaluate(() => { online.send({ n: 2 }); });
+  await t1.waitForTimeout(1500);
+  const m1 = await of1.evaluate(() => window.__moves), m2 = await of2.evaluate(() => window.__moves);
+  chk("every move reaches BOTH tabs, the sender's own included, in the same order, with the right seat numbers",
+    eq(m1, m2) && eq(m1.map((x) => x[0]).sort(), [1, 2, 3]) && m1.every((x) => (x[1] === 0) === [1, 3].includes(x[0])), [m1, m2]);
+  await t1.waitForTimeout(1000);
+  const g = [];
+  for (const fr of [of1, of2]) g.push(await fr.evaluate(() => { const p = online.peers; return { seats: Object.keys(p), n: Object.values(p).flat().length, kind: Object.values(p).flat().map((s) => [s.collider, s.shape]) }; }));
+  chk("each tab sees the other player's shared cube as a ghost Solid (collider 'none')", g.every((x) => x.n === 1 && eq(x.kind, [['none', 'box']])) && eq(g[0].seats, ['1']) && eq(g[1].seats, ['0']), g);
+  await of1.evaluate(() => { me.pos = [4, 3, -2]; me.vel = [0, 0, 0]; world.gravity.y = 0; });
+  await t1.waitForTimeout(1500);
+  const gp = await of2.evaluate(() => { const s = online.peers[0][0]; return { pos: [s.x, s.y, s.z], color: s.color }; });
+  chk("when one tab moves its cube the other tab's ghost goes there", Math.abs(gp.pos[0] - 4) < 0.1 && Math.abs(gp.pos[1] - 3) < 0.1 && Math.abs(gp.pos[2] + 2) < 0.1, gp);
+  await of1.evaluate(() => { me.rotation = [0, 90, 0]; }); await t1.waitForTimeout(1200);
+  const rot = await of2.evaluate(() => { const s = online.peers[0][0]; return s.rotation.y; });
+  chk("and the ROTATION crosses too (a 3D pose, not x and y)", Math.abs(Math.abs(rot) - 90) < 2, rot);
+  chk("the ghost has the sender's colour", gp.color === 'tomato', gp);
+  await t1.click('#lobby >> text=Leave');
+  await t1.waitForTimeout(1500);
+  const left = await of2.evaluate(() => ({ n: Object.values(online.peers).flat().length, status: online.status }));
+  chk("when the host leaves, the room closes for the other tab and the ghost goes", left.n === 0 && ['closed', 'waiting', 'off', 'error'].includes(left.status), left);
+  await octx.close();
+
+  section("Tiles (a level from text)");
+  r = await result(String.raw`function setup() {
+    const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+    const walls = new Group(); walls.collider = 'static'; walls.color = '#6272a4'; const coins = new Group(); coins.collider = 'none'; coins.color = 'gold';
+    const level = new Tiles([['#####', '#.c.#', '#####'], ['#...#', '.....', '#...#']], 0, 0.5, 0, 1, { '#': walls, c: coins });
+    const wallsAfterLevel = walls.length, before = allSolids.length;
+    const first = level[0], last = level.find((s) => s.x === 4 && s.z === 2 && s.y === 0.5), up = level.find((s) => s.y === 1.5), coin = coins[0];
+    const one = new Tiles(['##', '##'], 20, 0.5, 0, 2, { '#': walls }); const n0 = allSolids.length; t(() => new Tiles([['##', '#x']], 40, 0, 0, 1, { '#': walls })); const leftBehind = allSolids.length - n0;
+    window.__r = { all: level.length, walls: wallsAfterLevel, coins: coins.length, first: [first.x, first.y, first.z], last: !!last, up: [up.x, up.z], coin: [coin.x, coin.y, coin.z, coin.collider],
+      wall: [first.collider, first.color, first.w], isGroup: level instanceof Group, one: [one.length, one[0].w, one[3].x, one[3].z],
+      leftBehind, errs: { char: t(() => new Tiles([['#x#']], 0, 0, 0, 1, { '#': walls })), legend: t(() => new Tiles([['#']], 0, 0, 0, 1, { '#': 5 })), shape: t(() => new Tiles(7, 0, 0, 0)), pos: t(() => new Tiles([['#']], 'a', 0, 0, 1, { '#': walls })) } }; }`, 2);
+  chk("Tiles makes one solid per legend character (walls 16, one coin) and is a Group of them", r.all === 17 && r.walls === 16 && r.coins === 1 && r.isGroup, r);
+  chk("rows run along +z, columns +x, layers up +y, from the middle of the first cell", eq(r.first, [0, 0.5, 0]) && r.last === true && [0, 4].includes(r.up[0]) && eq(r.coin.slice(0, 3), [2, 0.5, 1]), r);
+  chk("each solid takes its group's settings (collider, colour) and the cell size", eq(r.wall, ['static', '#6272a4', 1]) && r.coin[3] === 'none', r);
+  chk("a single layer can be a plain list of rows, with a bigger cell", eq(r.one, [4, 2, 22, 2]), r.one);
+  chk("a level with a mistake in it makes NOTHING (no half-built level left behind)", r.leftBehind === 0, r.leftBehind);
+  e = r.errs;
+  chk("level mistakes name the character and where, or what to give",
+    e.char.includes("the character 'x' (layer 0, row 0, column 1)") && e.char.includes("legend has no 'x'") && e.legend.includes('must be a Group') && e.shape.includes('new Tiles() takes layers') && e.pos.includes('needs a number for x'), e);
+
+  section("billboard text");
+  r = await result(String.raw`let a, c; function setup() {
+    const sprites = () => __spashial.scene.children.filter((o) => o.isSprite);
+    const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+    a = new Cube(0, 3, 0, 1); const none = sprites().length;
+    a.text = 'score 3'; const one = sprites().length;
+    a.text = 7; const num = a.text; const still = sprites().length;
+    window.__s = { none, one, num, still, errs: { obj: t(() => { a.text = {}; }), col: t(() => { a.textColor = 5; }), size: t(() => { a.textSize = 0; }) } };
+    a.text = 'score 3'; a.textColor = '#ffcc00'; a.textSize = 1; c = a.clone(); window.__s.clone = [c.text, c.textColor, c.textSize, sprites().length]; }
+    function update() { if (frameCount === 12) { const sp = __spashial.scene.children.filter((o) => o.isSprite); const l = sp[0];
+      const img = l.material.map.image; window.__r = { ...window.__s, sprites: sp.length, above: l.position.y - a.y, aspect: img.width / img.height, vis: l.visible };
+      a.visible = false; window.__r.hidden = !__spashial.scene.children.filter((o) => o.isSprite)[0].visible; a.visible = true;
+      a.text = null; window.__r.cleared = __spashial.scene.children.filter((o) => o.isSprite).length; c.remove(); a.remove(); window.__r.removed = __spashial.scene.children.filter((o) => o.isSprite).length; } }`, 14);
+  chk("a label is one sprite: none before, one after text, still one when the text changes (a number becomes a string)", r.none === 0 && r.one === 1 && r.num === '7' && r.still === 1, r);
+  chk("it floats above the solid and is wider than tall (a real picture of the words)", r.above > 0.9 && r.aspect > 1.5 && r.vis === true, r);
+  chk("hiding the solid hides its label; text = null removes it; remove() takes labels away", r.hidden === true && r.cleared === 1 && r.removed === 0, r);
+  chk("a clone keeps the text, colour and size (and has its own label)", eq(r.clone, ['score 3', '#ffcc00', 1, 2]), r.clone);
+  e = r.errs;
+  chk("wrong text values explain themselves", e.obj.includes('text must be a string or a number') && e.col.includes('textColor must be a colour') && e.size.includes('textSize must be above 0'), e);
+
+  section("textures");
+  r = await result(String.raw`function setup() {
+    const names = textureNames(), out = { names }, flat = [];
+    const t = (f) => { try { f(); return ''; } catch (e) { return e.name + ': ' + e.message; } };
+    const a = new Cube(0, 0, 0, 1);
+    out.before = { map: a._material.map === null, tex: a.texture };
+    for (const n of names) {
+      a.texture = n; const img = a._material.map.image; const px = img.getContext('2d').getImageData(0, 0, img.width, img.height).data; const seen = new Set();
+      for (let i = 0; i < px.length; i += 4 * 97) seen.add(px[i] + ',' + px[i + 1] + ',' + px[i + 2]);
+      if (img.width !== 256 || seen.size < 2) flat.push(n);
+    }
+    out.flat = flat;
+    a.texture = 'bricks';
+    out.white = '#' + a._material.color.getHexString(); out.set = a.texture;
+    a.color = 'tomato'; out.tinted = '#' + a._material.color.getHexString();
+    a.textureRepeat = 4; out.rep = [a._material.map.repeat.x, a._material.map.repeat.y, a.textureRepeat.x];
+    a.textureRepeat = [2, 5]; out.rep2 = [a._material.map.repeat.x, a._material.map.repeat.y];
+    out.errs = { unknown: t(() => { a.texture = 'nope'; }), type: t(() => { a.texture = 5; }), rep: t(() => { a.textureRepeat = 0; }), still: a.texture };
+    a.texture = null; out.cleared = [a._material.map === null, a.texture];
+    const g = new Group(); const b = g.newSolid(5, 0, 0); g.texture = 'planks'; g.textureRepeat = 3; out.group = [b.texture, b.textureRepeat.x];
+    const c = b.clone(); out.clone = [c.texture, c.textureRepeat.x];
+    const h = new Hull(0, 0, 5, [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1], [0, 1.4, 0]]); h.texture = 'stone';
+    const m = new TriangleMesh(9, 0, 0, [[-2, 0, -2], [2, 0, -2], [2, 0, 2], [-2, 0, 2]], [[0, 2, 1], [0, 3, 2]]); m.texture = 'grid';
+    const uvRange = (x) => { const u = x._mesh.geometry.getAttribute('uv'); let lo = 9, hi = -9; for (let i = 0; i < u.array.length; i++) { lo = Math.min(lo, u.array[i]); hi = Math.max(hi, u.array[i]); } return [u.count, +lo.toFixed(3), +hi.toFixed(3)]; };
+    out.uv = { hull: uvRange(h), mesh: uvRange(m), hullVerts: h._mesh.geometry.getAttribute('position').count };
+    window.__r = out; }`, 2);
+  chk("textureNames lists the 8 built-in patterns", eq(r.names, ['bricks', 'checker', 'dots', 'grass', 'grid', 'planks', 'stone', 'stripes']), r.names);
+  chk("a solid starts with no texture", eq(r.before, { map: true, tex: null }), r.before);
+  chk("every built-in is a real 256 px picture (not blank)", eq(r.flat, []), r.flat);
+  chk("a textured solid draws white until you set a colour, then the colour tints it", r.white === '#ffffff' && r.tinted !== '#ffffff' && r.set === 'bricks', r);
+  chk("textureRepeat takes a number or [across, up]", eq(r.rep, [4, 4, 4]) && eq(r.rep2, [2, 5]), r);
+  e = r.errs;
+  chk("a wrong texture explains itself, lists the choices, and changes nothing",
+    e.unknown.includes("no texture called 'nope'") && e.unknown.includes("'bricks'") && e.type.includes('texture must be a name') && e.rep.includes('textureRepeat must be') && e.still === 'bricks', e);
+  chk("texture = null goes back to the plain colour", eq(r.cleared, [true, null]), r.cleared);
+  chk("a Group sets texture and textureRepeat on its members, and a clone keeps them", eq(r.group, ['planks', 3]) && eq(r.clone, ['planks', 3]), r);
+  const uh = r.uv.hull, um = r.uv.mesh;
+  chk("a hull and a triangle mesh get UVs spread over their box (0 to 1)", uh[0] === r.uv.hullVerts && uh[1] >= 0 && 0.99 <= uh[2] && uh[2] <= 1.001 && um[1] >= 0 && 0.99 <= um[2] && um[2] <= 1.001, r.uv);
+
+  r = await result(String.raw`let red; function preload() {
+    const c = document.createElement('canvas'); c.width = c.height = 4; const g = c.getContext('2d'); g.fillStyle = '#ff0000'; g.fillRect(0, 0, 4, 4);
+    registerTexture('red', c.toDataURL()); red = loadTexture('red'); window.__early = red.ready; }
+    function setup() { const a = new Cube(0, 0, 0); a.texture = 'red'; window.__r = { early: window.__early, atSetup: red.ready, names: textureNames().includes('red'), map: a._material.map.image instanceof HTMLImageElement,
+      size: a._material.map.image.width }; }`, 2);
+  chk("preload() waits for a texture: it is NOT ready at the start of preload and IS by setup()", r.early === false && r.atSetup === true && r.map && r.size === 4, r);
+  chk("a registered name shows up in textureNames()", r.names === true, r);
+
+  r = await result("function setup() { const a = new Cube(0, 0, 0); a.texture = 'data:image/png;base64,AAAA'; window.__r = { color: '#' + a._material.color.getHexString(), tex: a.texture }; }", 2);
+  await page.waitForTimeout(1000);
+  chk("a picture that cannot be loaded says so in plain words and the sketch keeps running", (await log(page)).includes('could not be loaded') && (await log(page)).includes('running'), await log(page));
+  chk("and it says so ONCE: no 'Texture marked for update' complaint from three.js on every frame", !(await log(page)).includes('Texture marked') && (await log(page)).split('could not be loaded').length - 1 === 1, (await log(page)).slice(0, 300));
+
   section("shadows");
   f = await run(page, "function setup() { new Floor(); sunLight.shadows = true; sunLight.direction = [0, -1, 0]; camera.lookAt(120, 0, -40); }", 5);
   const sh = await f.evaluate(() => { const S = __spashial; return { on: sunLight.shadows, map: S.renderer.shadowMap.enabled, t: S.sun.target.position.toArray(), p: S.sun.position.toArray() }; });
@@ -326,7 +616,7 @@ function update() { if (frameCount === 60) __r.x60 = __a.x; }`, 62);
   const a_ = dd.after;
   chk("they can be set and read back (maxSpeed and maxSpin in per-frame units)",
     near(a_.drag, 0.4, 1e-6) && near(a_.rd, 0.3, 1e-6) && a_.gs === 0.5 && a_.fast === true && near(a_.maxSpeed, 2, 1e-4) && near(a_.maxSpin, 90, 1e-3) && a_.group === 'x' && a_.sleep === false, a_);
-  let e = dd.errs;
+  e = dd.errs;
   chk("wrong values explain themselves", e[0].includes('drag must be a number') && e[1].includes('cannot be below 0') && e[2].includes('collisionGroup must be a name') && e[3].includes('must be above 0'), e);
 
   r = await result(`function setup() { const g = new Group(); const s = g.newSolid(1, 2, 3); g.amount = 3; window.__r = { n: g.length, kind: s instanceof Solid, y: s.y, old: typeof g.newMesh, oldNames: [typeof Asset, typeof Mesh] }; }`, 2);
@@ -423,7 +713,7 @@ function update() { if (frameCount === 60) __r.x60 = __a.x; }`, 62);
   for (const name of names) {
     await page.selectOption('#examples', { label: name });
     await page.waitForFunction("document.getElementById('log').innerText.length > 0", null, { timeout: 90000 });
-    const fr = runner(page);
+    const fr = await runnerFrame(page, 120000);
     await fr.waitForFunction('window.frameCount >= 200', null, { timeout: 120000 });
     const lg = await log(page);
     const ok = lg.includes('running') && !lg.includes('Error') && !lg.replace('running', '').toLowerCase().includes('error');
