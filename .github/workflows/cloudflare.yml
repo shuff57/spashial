@@ -1,0 +1,36 @@
+name: Deploy to Cloudflare Pages
+
+# Publishes the committed files to https://spashial.lefthanddev.com on every push to main (the Cloudflare
+# Pages project `spashial`, direct upload, like moSHion's). It runs on push only, never on a pull request,
+# so a fork's pull request can never reach the secrets.
+#
+# Needs two repository secrets: CLOUDFLARE_API_TOKEN (a token with ONLY Account > Cloudflare Pages > Edit)
+# and CLOUDFLARE_ACCOUNT_ID. scripts/deploy-cloudflare.mjs does the work: it exports the committed files and
+# runs wrangler from an empty directory (wrangler reads ./functions and ./wrangler.toml from the CURRENT
+# directory, so it must not run from a checkout that has them).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/deploy-cloudflare.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
