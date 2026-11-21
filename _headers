@@ -1,0 +1,8 @@
+# Cloudflare Pages headers. GitHub Pages ignores this file (it already sends
+# access-control-allow-origin: * for every file).
+#
+# The sketch runs in an iframe sandboxed WITHOUT allow-same-origin, so it has an opaque origin and
+# every module and .wasm file it loads is a cross-origin request. Without this header the engine
+# never starts.
+/*
+  Access-Control-Allow-Origin: *

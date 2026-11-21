@@ -1,0 +1,29 @@
+{
+  "name": "spashial",
+  "version": "0.1.0",
+  "description": "spaSHial: a beginner-friendly 3D game engine for the web. Real physics (Jolt) and three.js in a handful of globals.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shuff57/spashial.git"
+  },
+  "scripts": {
+    "serve": "node scripts/serve.mjs",
+    "vendor": "node scripts/build-vendor.mjs",
+    "test:physics": "node tests/physics.test.mjs",
+    "test:docs": "node tests/docs.test.mjs",
+    "test:browser": "node tests/browser.test.mjs",
+    "test:demos": "node tests/docs-demos.test.mjs",
+    "test:site": "node tests/docs-site.test.mjs",
+    "typecheck": "tsc --noEmit --strict --target es2022 --lib es2022,dom docs/spashial.d.ts",
+    "test": "npm run typecheck && npm run test:physics && npm run test:docs && npm run test:browser && npm run test:demos && npm run test:site"
+  },
+  "devDependencies": {
+    "jolt-physics": "1.1.1",
+    "playwright": "1.63.0",
+    "three": "0.185.1",
+    "typescript": "^5.6.0"
+  }
+}
