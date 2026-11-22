@@ -6,7 +6,9 @@ export default [
     id: 'groups', group: 'Objects', title: 'Groups',
     summary: 'A list of Solids that share settings, so one line changes them all.',
     blocks: [
-      'A `Group` is an array of Solids with extras. Make one, then make Solids **inside** it with `new group.Solid(...)`. Any setting you give the group is given to every member now, and to every member made later.',
+      '`new Group()`',
+      '`new group.Solid(x, y, z, width, height, depth)`',
+      'The first call makes an empty group. The second creates a Solid inside it with the same argument order as `new Solid()`. Use one size for a cube, as the example does with `new coins.Solid(-3, 4, 0, 0.8)`. Group settings reach members that already exist and members made later.',
       { demo: {
         id: 'group-basics', title: 'Settings that reach every member',
         code: `const coins = new Group();
@@ -24,7 +26,8 @@ function setup() {
   camera.lookAt(0, 2, 0);
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text(coins.length + ' in the group', 12, 12);
 }
 `,
@@ -67,7 +70,8 @@ function setup() {
   fixed = new Cube(-2.5, 4, 0, 'static');          // static: hangs in the air
   lift = new Cube(0, 1, 0, 'kinematic');           // kinematic: only moves if you move it
   zone = new Cube(3, 1.5, 0, 2, 3, 2, 'none');     // none: a ghost zone
-  zone.opacity = 0.3; zone.color = 'limegreen';
+  zone.opacity = 0.3;
+  zone.color = 'limegreen';
   ball = new Sphere(3, 8, 0, 0.8);                 // falls straight through the zone
   ball.color = 'tomato';
   camera.pos = [0, 4, 12];
@@ -102,10 +106,15 @@ function setup() {
 }
 function update() {
   // after the first hit, remember how high each ball gets
-  balls.forEach((s, i) => { if (frameCount > 70 && s.y > peaks[i]) peaks[i] = s.y; });
+  balls.forEach((s, i) => {
+    if (frameCount > 70 && s.y > peaks[i]) {
+      peaks[i] = s.y;
+    }
+  });
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('bounciness 0, 0.5 and 0.95', 12, 12);
 }
 `,
@@ -148,12 +157,14 @@ function setup() {
   big = new Cube(0, 1.5, 0, 2);
   dense = new Cube(3, 0.5, 0, 1);
   dense.density = 10;
-  big.color = 'gold'; dense.color = 'tomato';
+  big.color = 'gold';
+  dense.color = 'tomato';
   camera.pos = [0, 3, 11];
   camera.lookAt(0, 1, 0);
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('mass: small ' + small.mass + ', big ' + big.mass + ', dense ' + dense.mass, 12, 12);
 }
 `,
@@ -171,7 +182,9 @@ function drawTop() {
   const ring = new Torus(-1.5, 1.2, 0, 2.4, 0.8, 2.4, 'static');
   const rock = new Hull(2, 1, 0, [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1], [0, 1.6, 0]], 'static');
   const pill = new Capsule(5.5, 1.3, 0, 1.2, 2.6, 1.2, 'static');
-  for (const s of [big, ring, rock, pill]) s.debug = true;
+  for (const s of [big, ring, rock, pill]) {
+    s.debug = true;
+  }
   camera.pos = [0, 4, 12];
   camera.lookAt(0, 1.2, 0);
 }
@@ -207,7 +220,8 @@ function setup() {
   camera.lookAt(0, 0, 0);
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('drag 0, 0.05 and 1.5', 12, 12);
 }
 `,
@@ -246,7 +260,8 @@ function setup() {
   free = new Cube(-2, 1, 0, 1, 2, 1);
   locked = new Cube(2, 1, 0, 1, 2, 1);
   locked.lockRotation = true;
-  free.color = 'tomato'; locked.color = 'limegreen';
+  free.color = 'tomato';
+  locked.color = 'limegreen';
   camera.pos = [0, 3, 9];
   camera.lookAt(0, 1, 0);
 }
@@ -270,12 +285,16 @@ function setup() {
   fast = new Sphere(-10, 1, -2, 1);
   capped = new Sphere(-10, 1, 2, 1);
   capped.maxSpeed = 0.05;              // 3 units a second at most
-  fast.color = 'tomato'; capped.color = 'gold';
+  fast.color = 'tomato';
+  capped.color = 'gold';
   camera.pos = [0, 7, 16];
   camera.lookAt(0, 0, 0);
 }
 function update() {
-  if (frameCount === 10) { fast.applyImpulse(8, 0, 0); capped.applyImpulse(8, 0, 0); }
+  if (frameCount === 10) {
+    fast.applyImpulse(8, 0, 0);
+    capped.applyImpulse(8, 0, 0);
+  }
 }
 `,
         steps: [{ wait: 70 }],
@@ -288,7 +307,9 @@ function update() {
         code: `let slow, fast;
 function setup() {
   new Floor(30);
-  for (const z of [-2, 2]) new Cube(6, 1, z, 0.05, 2, 2, 'static').color = 'tomato';   // two thin walls
+  for (const z of [-2, 2]) {
+    new Cube(6, 1, z, 0.05, 2, 2, 'static').color = 'tomato';   // two thin walls
+  }
   slow = new Sphere(-6.7, 1, -2, 0.4);     // 3 units a frame: 5.3 then 8.3, so it steps right over a wall at 6
   fast = new Sphere(-6.7, 1, 2, 0.4);
   fast.isSuperFast = true;
@@ -297,7 +318,8 @@ function setup() {
   camera.lookAt(0, 0, 0);
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('isSuperFast: off (back), on (front)', 12, 12);
 }
 `,
@@ -317,11 +339,20 @@ function setup() {
   camera.lookAt(0, 1, 0);
 }
 function update() {
-  box.color = box.sleeping ? 'skyblue' : 'tomato';
+  if (box.sleeping) {
+    box.color = 'skyblue';
+  } else {
+    box.color = 'tomato';
+  }
 }
 function drawTop() {
-  fill('white'); textSize(16);
-  text(box.sleeping ? 'asleep' : 'awake', 12, 12);
+  fill('white');
+  textSize(16);
+  if (box.sleeping) {
+    text('asleep', 12, 12);
+  } else {
+    text('awake', 12, 12);
+  }
 }
 `,
         steps: [{ wait: 240 }],
@@ -336,11 +367,11 @@ function drawTop() {
     blocks: [
       'To make a dynamic body move, you can set `vel` yourself, or you can **push it** and let physics work out the rest. Pushing keeps collisions, mass and friction honest.',
       { table: { head: ['', 'Instant (once)', 'Steady (every frame)'], rows: [
-        ['Push', '`applyImpulse(x, y, z)`', '`applyForce(x, y, z)`'],
+        ['Push', '`solid.applyImpulse(impulseX, impulseY, impulseZ)`', '`solid.applyForce(forceX, forceY, forceZ)`'],
         ['Push at a point', '`applyImpulseAt(x, y, z, px, py, pz)`', '`applyForceAt(x, y, z, px, py, pz)`'],
         ['Twist', '`applyAngularImpulse(x, y, z)`', '`applyTorque(x, y, z)`'],
       ] } },
-      'An **impulse** is a kick: use it once, for a jump or a hit. A **force** is a push that only has an effect if you keep applying it, so call it in `update()`.',
+      'Pass the X, Y and Z components in that order. In the example, `player.applyImpulse(0, 6, 0)` kicks straight up. Use an impulse once for a jump or a hit. For a steady push, call `applyForce()` each frame in `update()`.',
       { demo: {
         id: 'impulse-jump', title: 'Jump with an impulse',
         hint: 'Click the picture, then press Space.',
@@ -356,10 +387,13 @@ function setup() {
 }
 function update() {
   const onGround = player.y < 0.6;
-  if (kb.presses('space') && onGround) player.applyImpulse(0, 6, 0);
+  if (kb.presses('space') && onGround) {
+    player.applyImpulse(0, 6, 0);
+  }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('Space to jump', 12, 12);
 }
 `,
@@ -379,11 +413,16 @@ function setup() {
   camera.follow(cart, { distance: 10, height: 4 });
 }
 function update() {
-  if (kb.pressing('d')) cart.applyForce(25, 0, 0);
-  if (kb.pressing('a')) cart.applyForce(-25, 0, 0);
+  if (kb.pressing('d')) {
+    cart.applyForce(25, 0, 0);
+  }
+  if (kb.pressing('a')) {
+    cart.applyForce(-25, 0, 0);
+  }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('speed ' + (cart.vel.x * 60).toFixed(1) + ' units a second', 12, 12);
 }
 `,
@@ -408,8 +447,10 @@ function setup() {
 }
 function update() {
   if (frameCount > 5 && frameCount <= 65) {
-    light.applyForce(3, 0, 0);   heavy.applyForce(3, 0, 0);
-    lightS.applyForceScaled(3, 0, 0); heavyS.applyForceScaled(3, 0, 0);
+    light.applyForce(3, 0, 0);
+    heavy.applyForce(3, 0, 0);
+    lightS.applyForceScaled(3, 0, 0);
+    heavyS.applyForceScaled(3, 0, 0);
   }
 }
 `,
@@ -425,7 +466,8 @@ function setup() {
   new Floor(24);
   straight = new Cube(-4, 1, 0, 1.6);
   spinning = new Cube(4, 1, 0, 1.6);
-  straight.color = 'skyblue'; spinning.color = 'gold';
+  straight.color = 'skyblue';
+  spinning.color = 'gold';
   camera.pos = [0, 6, 13];
   camera.lookAt(0, 1, 0);
 }
@@ -447,17 +489,23 @@ function setup() {
   new Floor(16);
   steady = new Cube(-3, 2, 0, 1.6);
   instant = new Cube(3, 2, 0, 1.6);
-  steady.color = 'orchid'; instant.color = 'gold';
+  steady.color = 'orchid';
+  instant.color = 'gold';
   steady.rotationDrag = instant.rotationDrag = 0;     // let the spin build up and stay
   camera.pos = [0, 4, 11];
   camera.lookAt(0, 2, 0);
 }
 function update() {
-  if (frameCount > 5 && frameCount <= 65) steady.applyTorque(0, 1, 0);
-  if (frameCount === 5) instant.applyAngularImpulse(0, 1, 0);
+  if (frameCount > 5 && frameCount <= 65) {
+    steady.applyTorque(0, 1, 0);
+  }
+  if (frameCount === 5) {
+    instant.applyAngularImpulse(0, 1, 0);
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('spin: left ' + steady.angularVelocity.y.toFixed(1) + ', right ' + instant.angularVelocity.y.toFixed(1) + ' degrees a frame', 12, 12);
 }
 `,
@@ -483,7 +531,7 @@ function drawTop() {
       { list: [
         'Use **collides** to react to a hit once: a sound, a point, a crack.',
         'Use **overlaps** for zones. A `collider = \'none\'` solid is a sensor: nothing bounces off it but it still tells you who is inside.',
-        'Every verb takes a Solid **or a Group**, and an optional callback `(self, other, hit) => ...` that runs for each pair that matched. `hit` is described below.',
+        'Every verb takes a Solid or Group and an optional callback. The callback receives `self`, `other` and `hit` in that order.',
       ] },
       { demo: {
         id: 'touch-counters', title: 'All the verbs on one falling box',
@@ -495,20 +543,28 @@ function setup() {
   box = new Cube(-3, 4, 0);
   box.color = 'tomato';
   zone = new Cube(3, 2, 0, 3, 1, 3, 'none');       // a sensor
-  zone.color = 'limegreen'; zone.opacity = 0.3;
+  zone.color = 'limegreen';
+  zone.opacity = 0.3;
   ball = new Sphere(3, 7, 0, 0.6);
   camera.pos = [0, 4, 12];
   camera.lookAt(0, 1.5, 0);
 }
 function update() {
-  if (box.collides(floor)) seen.collides++;                  // one frame
+  if (box.collides(floor)) {
+    seen.collides++;                  // one frame
+  }
   seen.colliding = Math.max(seen.colliding, box.colliding(floor));   // counts up while resting
-  if (box.collided(floor)) seen.collided++;
+  if (box.collided(floor)) {
+    seen.collided++;
+  }
   seen.overlapping = Math.max(seen.overlapping, ball.overlapping(zone));
-  if (ball.overlapped(zone)) seen.overlapped++;              // one frame, when the ball leaves
+  if (ball.overlapped(zone)) {
+    seen.overlapped++;              // one frame, when the ball leaves
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('collides ' + seen.collides + '   colliding ' + seen.colliding + '   overlapping ' + seen.overlapping + '   overlapped ' + seen.overlapped, 12, 12);
 }
 `,
@@ -516,7 +572,8 @@ function drawTop() {
         expect: () => seen.collides === 1 && seen.colliding > 60 && seen.collided === 0 && seen.overlapping > 3 && seen.overlapped === 1,
       } },
       { h: 'Callbacks' },
-      'Pass a function as the second argument and it runs for each pair that matched. That is the tidy way to react to a Group.',
+      '`solid.overlaps(target, callback)`',
+      'The target is a Solid or a Group. In the example, `player.overlaps(coins, collectCoin)` runs the callback for each coin the player touches.',
       { demo: {
         id: 'coins', title: 'Collect the coins',
         hint: 'Click the picture, then hold D.',
@@ -528,15 +585,27 @@ function setup() {
   new Floor(30);
   player = new Cube(-6, 0.5, 0);
   player.color = 'tomato';
-  for (let i = 0; i < 5; i++) new coins.Solid(-2 + i * 2.5, 0.8, 0, 0.7);
+  for (let i = 0; i < 5; i++) {
+    new coins.Solid(-2 + i * 2.5, 0.8, 0, 0.7);
+  }
   camera.follow(player, { distance: 9, height: 4 });
 }
 function update() {
-  player.vel.x = kb.pressing('d') ? 0.12 : 0;
-  player.overlaps(coins, (p, coin) => { coin.remove(); score++; });
+  if (kb.pressing('d')) {
+    player.vel.x = 0.12;
+  } else {
+    player.vel.x = 0;
+  }
+  player.overlaps(coins, collectCoin);
+}
+
+function collectCoin(player, coin) {
+  coin.remove();
+  score++;
 }
 function drawTop() {
-  fill('white'); textSize(18);
+  fill('white');
+  textSize(18);
   text('coins: ' + score, 12, 12);
 }
 `,
@@ -564,12 +633,19 @@ function setup() {
 function update() {
   box.collides(floor, (b, f, hit) => {
     landing = { speed: hit.speed, up: Math.abs(hit.normal.y) };
-    if (hit.speed > 0.08) b.color = 'gold';          // a hard hit
+    if (hit.speed > 0.08) {
+      b.color = 'gold';          // a hard hit
+    }
   });
 }
 function drawTop() {
-  fill('white'); textSize(16);
-  text(landing ? 'landed at speed ' + landing.speed.toFixed(3) : 'falling...', 12, 12);
+  fill('white');
+  textSize(16);
+  if (landing) {
+    text('landed at speed ' + landing.speed.toFixed(3), 12, 12);
+  } else {
+    text('falling...', 12, 12);
+  }
 }
 `,
         steps: [{ wait: 120 }],
@@ -596,7 +672,8 @@ function setup() {
   lift.color = '#6272a4';
   lift.friction = 1;
   crate = new Cube(0, 1.4, 0, 1.5);
-  crate.color = 'gold'; crate.friction = 1;
+  crate.color = 'gold';
+  crate.friction = 1;
   camera.pos = [0, 5, 14];
   camera.lookAt(0, 2, 0);
 }
@@ -619,8 +696,12 @@ function setup() {
   moveToPlat = new Cube(-5, 0.2, 0, 3, 0.4, 3, 'kinematic');
   posPlat = new Cube(5, 0.2, 0, 3, 0.4, 3, 'kinematic');
   moveToPlat.friction = posPlat.friction = 1;
-  crateA = new Cube(-5, 1.1, 0, 1); crateA.friction = 1; crateA.color = 'gold';
-  crateB = new Cube(5, 1.1, 0, 1); crateB.friction = 1; crateB.color = 'tomato';
+  crateA = new Cube(-5, 1.1, 0, 1);
+  crateA.friction = 1;
+  crateA.color = 'gold';
+  crateB = new Cube(5, 1.1, 0, 1);
+  crateB.friction = 1;
+  crateB.color = 'tomato';
   camera.pos = [0, 5, 16];
   camera.lookAt(0, 1, 0);
 }
@@ -632,7 +713,8 @@ function update() {
   gapB = Math.max(gapB, Math.abs(crateB.x - posPlat.x));
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('furthest the crate got from its platform: left ' + gapA.toFixed(1) + ', right ' + gapB.toFixed(1), 12, 12);
 }
 `,
@@ -648,13 +730,13 @@ function drawTop() {
     id: 'joints', group: 'Physics', title: 'Joints',
     summary: 'Hinges, chains, ropes, springs, drawers and glue.',
     blocks: [
-      'A joint ties two Solids together and lets them move relative to each other in one particular way. Make one with `new SomeJoint(a, b, options)`. At least one of the two Solids must be able to move, so tie a dynamic body to a static anchor, or two dynamic bodies together. Angles are degrees counted from the pose the two were in when the joint was made. `anchor` is a point in the world; it defaults to the first Solid\'s middle.',
+      'A joint ties two Solids together and lets them move relative to each other. Give the two Solids first, then the options object where supported. At least one of the two Solids must be able to move, so tie a dynamic body to a static anchor, or two dynamic bodies together. Angles are degrees counted from the pose the two were in when the joint was made. `anchor` is a point in the world; it defaults to the first Solid\'s middle.',
       { table: { head: ['Joint', 'The two can...', 'Options'], rows: [
-        ['`HingeJoint`', 'turn about a line, like a door', '`anchor`, `axis`, `lowerLimit` (-180 to 0), `upperLimit` (0 to 180), `friction`'],
-        ['`BallJoint`', 'swing any way around a point, like a chain link', '`anchor`'],
-        ['`DistanceJoint`', 'stay a set distance apart: a stick, a rope or a spring', '`length`, `rope: true`, `spring: { hz, damping }`'],
-        ['`SliderJoint`', 'slide along a line, like a drawer', '`axis`, `lowerLimit` (0 or less), `upperLimit` (0 or more)'],
-        ['`GlueJoint`', 'not move at all relative to each other', 'none'],
+        ['`new HingeJoint(solidA, solidB, options)`', 'turn about a line, like a door', '`anchor`, `axis`, `lowerLimit` (-180 to 0), `upperLimit` (0 to 180), `friction`'],
+        ['`new BallJoint(solidA, solidB, options)`', 'swing any way around a point, like a chain link', '`anchor`'],
+        ['`new DistanceJoint(solidA, solidB, options)`', 'stay a set distance apart: a stick, a rope or a spring', '`length`, `rope: true`, `spring: { hz, damping }`'],
+        ['`new SliderJoint(solidA, solidB, options)`', 'slide along a line, like a drawer', '`axis`, `lowerLimit` (0 or less), `upperLimit` (0 or more)'],
+        ['`new GlueJoint(solidA, solidB)`', 'not move at all relative to each other', 'none'],
       ] } },
       { h: 'Hinge: a door' },
       { demo: {
@@ -677,7 +759,8 @@ function update() {
   widest = Math.max(widest, Math.abs(hinge.angle));
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('angle ' + Math.round(hinge.angle) + ' degrees', 12, 12);
 }
 `,
@@ -721,8 +804,14 @@ function setup() {
   world.gravity.y = -10;
   new Floor();
   const beam = new Cube(0, 9, 0, 9, 0.3, 0.5, 'static');
-  const hang = (x, color) => { const s = new Sphere(x, 5.5, 0, 1.2); s.color = color; return s; };
-  stick = hang(-3, 'tomato'); rope = hang(0, 'gold'); spring = hang(3, 'skyblue');
+  const hang = (x, color) => {
+    const s = new Sphere(x, 5.5, 0, 1.2);
+    s.color = color;
+    return s;
+  };
+  stick = hang(-3, 'tomato');
+  rope = hang(0, 'gold');
+  spring = hang(3, 'skyblue');
   new DistanceJoint(beam, stick, { length: 3.5 });
   new DistanceJoint(beam, rope, { length: 3.5, rope: true });
   springJoint = new DistanceJoint(beam, spring, { length: 3.5, spring: { hz: 1.5, damping: 0.1 } });
@@ -734,7 +823,8 @@ function update() {
   hi = Math.max(hi, springJoint.distance);
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('spring joint is ' + springJoint.distance.toFixed(2) + ' long (resting length ' + springJoint.length + ')', 12, 12);
 }
 `,
@@ -757,7 +847,8 @@ function setup() {
   camera.lookAt(0, 1, 0);
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('slid ' + slide.position.toFixed(2) + ' units (limit 3)', 12, 12);
 }
 `,
@@ -773,7 +864,8 @@ function setup() {
   new Floor();
   a = new Cube(0, 0.5, 0, 1, 1, 1);
   b = new Cube(0, 1.6, 0, 3, 0.2, 1);       // a flat top on a stalk: a T
-  a.color = 'tomato'; b.color = 'gold';
+  a.color = 'tomato';
+  b.color = 'gold';
   new GlueJoint(a, b);
   a.applyImpulse(2, 3, 0);                  // kick the stalk: the top follows
   camera.pos = [0, 3, 9];
@@ -831,19 +923,30 @@ function setup() {
   world.gravity.y = -10;
   new Floor(14);
   world.ignoreCollisions('phantoms');
-  for (let i = 0; i < 6; i++) new group.Solid(0, 2 + i * 1.3, 0, 1).color = 'orchid';
+  for (let i = 0; i < 6; i++) {
+    new group.Solid(0, 2 + i * 1.3, 0, 1).color = 'orchid';
+  }
   camera.pos = [0, 4, 12];
   camera.lookAt(0, 1.5, 0);
 }
 function update() {
   if (kb.presses('space')) {
     on = !on;
-    if (on) world.ignoreCollisions('phantoms'); else world.restoreCollisions('phantoms');
+    if (on) {
+      world.ignoreCollisions('phantoms');
+    } else {
+      world.restoreCollisions('phantoms');
+    }
   }
 }
 function drawTop() {
-  fill('white'); textSize(16);
-  text(on ? 'phantoms pass through each other' : 'phantoms collide again', 12, 12);
+  fill('white');
+  textSize(16);
+  if (on) {
+    text('phantoms pass through each other', 12, 12);
+  } else {
+    text('phantoms collide again', 12, 12);
+  }
 }
 `,
         steps: [{ wait: 200 }, { press: 'Space' }, { wait: 2 }],
@@ -900,10 +1003,14 @@ function setup() {
   camera.lookAt(0, 3, 0);
 }
 function update() {
-  if (kb.presses('n') || kb.pressing('p')) { world.physicsUpdate(); steps++; }
+  if (kb.presses('n') || kb.pressing('p')) {
+    world.physicsUpdate();
+    steps++;
+  }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('steps taken: ' + steps + '   (N steps once, hold P to run)', 12, 12);
 }
 `,

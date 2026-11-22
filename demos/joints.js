@@ -3,7 +3,8 @@ let drawer;
 function setup() {
   world.gravity.y = -10;
   new Floor();
-  camera.pos = [0, 7, 15]; camera.lookAt(0, 3, 0);
+  camera.pos = [0, 7, 15];
+  camera.lookAt(0, 3, 0);
 
   // A door: a hinge on its left edge, free to swing 90 degrees either way.
   const post = new Cube(-6, 2, 0, 0.3, 4, 0.3, 'static');
@@ -28,9 +29,12 @@ function setup() {
   drawer.applyImpulse(0, 0, 8);
 }
 function update() {
-  if (kb.presses('space')) drawer.applyImpulse(0, 0, -14);
+  if (kb.presses('space')) {
+    drawer.applyImpulse(0, 0, -14);
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('A hinge, a rope and a slider. Space shoves the drawer.', 12, 12);
 }

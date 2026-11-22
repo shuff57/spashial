@@ -37,13 +37,22 @@ export default [
   camera.lookAt(0, 1, 0);
 }
 function update() {
-  if (kb.presses('1')) quality = 'low';
-  if (kb.presses('2')) quality = 'medium';
-  if (kb.presses('3')) quality = 'high';
-  if (kb.presses('4')) quality = 'auto';
+  if (kb.presses('1')) {
+    quality = 'low';
+  }
+  if (kb.presses('2')) {
+    quality = 'medium';
+  }
+  if (kb.presses('3')) {
+    quality = 'high';
+  }
+  if (kb.presses('4')) {
+    quality = 'auto';
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text("quality = '" + quality + "'   (keys 1 low, 2 medium, 3 high, 4 auto)", 12, 70);
 }
 `,
@@ -216,7 +225,9 @@ function setup() {
       { demo: {
         id: 'err-save-function', title: 'Something that cannot be saved',
         code: `function setup() {
-  storeItem('callback', () => 1);     // only numbers, text, lists and objects can be saved
+  storeItem('callback', function () {
+    return 1;
+  });
 }
 `,
         error: { message: /cannot save a function/, line: 2 },
@@ -279,10 +290,12 @@ function setup() {
         code: `let n = 0;
 function update() {
   n++;
-  if (n === 3) throw new Error('boom');
+  if (n === 3) {
+    throw new Error('boom');
+  }
 }
 `,
-        error: { message: /boom/, line: 4 }, stops: true,
+        error: { message: /boom/, line: 5 }, stops: true,
       } },
       { note: 'Setting a property spaSHial does not know is **not** an error: `solid.glow = 5` is accepted and does nothing. If something has no effect, check the name against the [reference](#/reference), and the [Planned](#/planned) page, before suspecting anything else.' },
     ],
@@ -308,12 +321,20 @@ function setup() {
 const saved = {};                                   // what the sketch saved with storeItem()
 
 window.addEventListener('message', (e) => {
-  if (e.source !== frame.contentWindow) return;
+  if (e.source !== frame.contentWindow) {
+    return;
+  }
   const m = e.data || {};
-  if (m.source === 'preview-storage-request')      // the frame asks for the sketch and its saved values
+  // The frame asks for the sketch and its saved values.
+  if (m.source === 'preview-storage-request') {
     frame.contentWindow.postMessage({ source: 'preview-storage-init', code: sketch, data: saved }, '*');
-  if (m.source === 'preview-storage' && m.op === 'set') saved[m.key] = m.value;
-  if (m.source === 'preview-error') console.log(m.error.message, 'line', m.error.line);
+  }
+  if (m.source === 'preview-storage' && m.op === 'set') {
+    saved[m.key] = m.value;
+  }
+  if (m.source === 'preview-error') {
+    console.log(m.error.message, 'line', m.error.line);
+  }
 });
 </script>` },
       'Do **not** add `allow-same-origin` to the sandbox. Without it the sketch gets an opaque origin, and that is the whole safety.',

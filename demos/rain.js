@@ -10,7 +10,11 @@ function setup() {
 function update() {
   if (frameCount % 3 === 0 && rain.length < 300) {
     const a = new rain.Solid(random(-4, 4), 14, random(-4, 4), 0.7);
-    a.shape = frameCount % 2 ? 'sphere' : 'box';
+    if (frameCount % 2 === 1) {
+      a.shape = 'sphere';
+    } else {
+      a.shape = 'box';
+    }
     a.color = ['tomato', 'gold', 'skyblue', 'orchid'][frameCount % 4];
     a.friction = 0.4;
   }

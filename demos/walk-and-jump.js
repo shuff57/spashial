@@ -21,16 +21,27 @@ function setup() {
 function update() {
   const speed = 0.12;
   let dx = 0, dz = 0;
-  if (kb.pressing('a')) dx -= 1;
-  if (kb.pressing('d')) dx += 1;
-  if (kb.pressing('w')) dz -= 1;
-  if (kb.pressing('s')) dz += 1;
+  if (kb.pressing('a')) {
+    dx -= 1;
+  }
+  if (kb.pressing('d')) {
+    dx += 1;
+  }
+  if (kb.pressing('w')) {
+    dz -= 1;
+  }
+  if (kb.pressing('s')) {
+    dz += 1;
+  }
   player.vel.x = dx * speed;
   player.vel.z = dz * speed;
   const onGround = world.rayCast(player.pos, [player.x, player.y - 0.6, player.z]);
-  if (kb.presses('space') && onGround) player.applyImpulse(0, 7, 0);
+  if (kb.presses('space') && onGround) {
+    player.applyImpulse(0, 7, 0);
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('WASD to move, Space to jump', 12, 12);
 }

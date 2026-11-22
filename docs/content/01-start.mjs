@@ -21,13 +21,13 @@ export default [
     summary: 'A 3D game engine for the web, small enough to learn in an afternoon.',
     blocks: [
       'spaSHial draws 3D with three.js and moves things with **real rigid-body physics** (Jolt, a physics engine used in commercial games). You write a handful of functions and use a handful of globals: `Solid`, `Group`, `world`, `camera`, `kb` and `mouse`. There is nothing to install, import or build.',
-      'Here is a whole game world. Press **Run**, then change a number and press it again.',
+      'Start with `new Solid(x, y, z, width, height, depth)` to make a box. The first three numbers place its center. The last three set its size. Press **Run**, then change the width (the fourth number) and run it again.',
       { demo: {
         id: 'first-sketch', title: 'Your first sketch',
         code: `function setup() {
   world.gravity.y = -10;      // gravity starts off. This turns it on.
   new Floor();                // a big flat slab to land on
-  const box = new Cube(0, 4, 0);
+  const box = new Solid(0, 4, 0, 2, 1, 1);
   box.color = 'tomato';
 }
 `,
@@ -48,7 +48,7 @@ export default [
         'Build machines: [Joints](#/joints) and [Moving platforms](#/platforms).',
         'Stuck? [When something goes wrong](#/errors) shows the messages you will see and what they mean.',
       ] },
-      { note: 'If you already know **moSHion**, the 2D sibling of this engine: the hooks, `Group`, the four collider words and the touch verbs (`collides`, `overlaps` and friends) are the same. The differences are three axes, degrees, and a default friction of 0.5.' },
+      { note: 'In **moSHion**, `new Sprite(x, y, width, height)` takes position first and size second. In spaSHial, `z` adds the third position coordinate and `depth` adds the third dimension. The hooks, groups and touch methods work much the same way.' },
     ],
   },
 
@@ -75,7 +75,11 @@ function setup() {
 }
 function update() {
   // runs 60 times a second, even on a 144 Hz screen
-  box.color = box.vel.y > 0 ? 'gold' : 'tomato';   // gold while rising
+  if (box.vel.y > 0) {
+    box.color = 'gold';
+  } else {
+    box.color = 'tomato';
+  }
 }
 function draw() {
   background('#1b2a3a');   // runs once per drawn frame
@@ -92,7 +96,7 @@ function drawTop() {
       { list: [
         '`update(step)` is given the step length in seconds (always 1/60), if you want it.',
         'Physics runs at a **fixed 60 Hz** and the picture is smoothed between steps, so a game plays the same on a slow laptop and a fast monitor.',
-        '`frameCount` counts physics frames. It is the right thing to time with: `if (frameCount % 60 === 0)` happens once a second.',
+        '`frameCount` counts physics frames. The condition `frameCount % 60 === 0` is true once a second.',
         'If your code throws an error, the loop stops at the first one so you read one message, not sixty a second.',
         'A fifth hook, `preload()`, is called once before `setup()`. Start loading pictures, models and sounds there (`loadTexture`, `loadModel`, `loadSound`) and `setup()` waits until they are ready. If you load nothing, it makes no difference.',
       ] },
@@ -138,7 +142,8 @@ function update() {
   spinner.rotation.y = frameCount * 2;   // 2 degrees a frame
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('turn: ' + Math.round(spinner.rotation.y) + ' degrees', 12, 12);
 }
 `,
@@ -156,21 +161,26 @@ function drawTop() {
       'The six shapes are `Cube`, `Sphere`, `Cylinder`, `Capsule`, `Cone` and `Torus`. They are all Solids; the name only picks the starting shape.',
       { demo: { id: 'all-shapes', title: 'All six, dropped from the same height', from: 'all-the-shapes', expect: () => [...__spashial.solids].filter((s) => s._collider === 'dynamic').length === 6 } },
       { h: 'Giving a size' },
-      'Every shape takes a position first, then optionally a size, then optionally a collider word.',
+      '`new Solid(x, y, z, width, height, depth)`',
+      '`new Cube(x, y, z, width, height, depth)`',
+      'Both place a box center at `(x, y, z)`. Width runs along X, height along Y, and depth along Z.',
+      '`new Sphere(x, y, z, diameter)`',
+      'The same first three numbers place the sphere center. The fourth sets its diameter.',
       { table: { head: ['You write', 'You get'], rows: [
+        ['`new Solid(x, y, z, width, height, depth, collider)`', 'The full argument order. The collider is optional and goes last.'],
         ['`new Cube(0, 1, 0)`', 'A 1 by 1 by 1 cube centred at (0, 1, 0).'],
         ['`new Cube(0, 1, 0, 2)`', 'One size: a 2 by 2 by 2 cube. For a sphere, a diameter of 2.'],
         ['`new Cube(0, 1, 0, 4, 1, 2)`', 'Three sizes: width 4, height 1, depth 2.'],
         ['`new Cube(0, 1, 0, 2, \'static\')`', 'Any of the above, then a collider: `\'dynamic\'` (default), `\'static\'`, `\'kinematic\'` or `\'none\'`.'],
-        ['`new Floor()`', 'A big static slab 40 across with its top at y = 0. `new Floor(100)` is 100 across.'],
+        ['`new Floor(size)`', 'A static slab with its top at y = 0. `new Floor(100)` is 100 across. Leave out the size for a slab 40 across.'],
       ] } },
-      { table: { head: ['Shape', 'What the one-size form means', 'Default'], rows: [
-        ['Cube', 'Width, height and depth', '1 by 1 by 1'],
-        ['Sphere', 'Diameter (a sphere has one size)', '1 across'],
-        ['Cylinder', 'Diameter and height', '1 across, 1 high'],
-        ['Capsule', 'Diameter; it is twice as tall as it is wide', '1 across, 2 high'],
-        ['Cone', 'Base diameter and height; the tip points up', '1 across, 1 high'],
-        ['Torus', 'Across; the ring is 0.35 of that thick. `h` is the thickness and must be smaller than `w`', '1 across, 0.35 thick'],
+      { table: { head: ['One-size constructor', 'What the size controls', 'Default'], rows: [
+        ['`new Cube(x, y, z, size)`', 'Width, height and depth', '1 by 1 by 1'],
+        ['`new Sphere(x, y, z, diameter)`', 'Diameter', '1 across'],
+        ['`new Cylinder(x, y, z, size)`', 'Diameter and height', '1 across, 1 high'],
+        ['`new Capsule(x, y, z, diameter)`', 'Diameter. The capsule is twice as tall as it is wide.', '1 across, 2 high'],
+        ['`new Cone(x, y, z, size)`', 'Base diameter and height. The tip points up.', '1 across, 1 high'],
+        ['`new Torus(x, y, z, diameter)`', 'Outside diameter. The ring is 0.35 times as thick.', '1 across, 0.35 thick'],
       ] } },
       { demo: {
         id: 'sizes', title: 'Every way to size a Solid',
@@ -179,7 +189,7 @@ function setup() {
   new Floor(14);
   a = new Cube(-4.5, 0.5, 0);               // default
   b = new Cube(-2.5, 1, 0, 2);              // one size
-  c = new Cube(0.5, 0.5, 0, 3, 1, 1);       // three sizes
+  c = new Solid(0.5, 0.5, 0, 3, 1, 1);      // width, height, depth
   d = new Cube(3, 0.25, 0, 1, 0.5, 1, 'static');  // with a collider word
   ball = new Sphere(5, 1, 0, 2);            // a sphere 2 across
   tall = new Capsule(-6, 2, 0, 1);          // one size: 1 across, 2 tall
@@ -187,7 +197,8 @@ function setup() {
   camera.lookAt(0, 1, 0);
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('c is ' + c.w + ' by ' + c.h + ' by ' + c.d, 12, 12);
 }
 `,
@@ -217,14 +228,15 @@ function update() {
   }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text(thing.shape + '   (Space for the next shape)', 12, 12);
 }
 `,
         steps: [{ wait: 30 }, { press: 'Space' }, { wait: 5 }],
         expect: () => thing.shape === 'sphere',
       } },
-      { note: 'A **Torus** has no ready-made collider in the physics engine, so spaSHial builds one from a ring of 16 capsules. It is accurate to about 2 cm and costs roughly six times what a sphere costs. Use a few, not hundreds.' },
+      { note: 'For a Torus, `h` sets the ring thickness and must be smaller than `w`. spaSHial builds its collider from a ring of 16 capsules. It is accurate to about 2 cm and costs roughly six times what a sphere costs. Use a few, not hundreds.' },
     ],
   },
 
@@ -277,7 +289,9 @@ function setup() {
   camera.lookAt(0, 1.5, 0);
 }
 function update() {
-  if (kb.presses('space')) glass.visible = !glass.visible;   // hidden, but still solid
+  if (kb.presses('space')) {
+    glass.visible = !glass.visible;   // hidden, but still solid
+  }
 }
 `,
         steps: [{ wait: 200 }],
@@ -319,7 +333,8 @@ function setup() {
         ['Size', 'Comes from the points. `w`, `h`, `d` read but cannot be set.', 'Comes from the vertices. Same.'],
       ] } },
       { h: 'A Hull' },
-      '`new Hull(x, y, z, points, collider?)`. Points are relative to the Hull\'s own position, and you need at least four that are not all on one flat plane.',
+      '`new Hull(x, y, z, points, collider)`',
+      'The collider is optional. Points are relative to the Hull\'s own position, and you need at least four that are not all on one flat plane.',
       { demo: {
         id: 'gem-hull', title: 'A dynamic gem and a static ramp',
         code: `let gem;
@@ -342,47 +357,37 @@ function setup() {
         expect: () => gem.shape === 'hull' && gem.y < 1.2 && gem.points.length === 6,
       } },
       { h: 'A TriangleMesh' },
-      '`new TriangleMesh(x, y, z, vertices, triangles, collider?)`. Each triangle is three numbers: indexes into `vertices`. A TriangleMesh is solid from both sides, so the order of a triangle\'s corners does not matter. It stores each triangle twice, so keep the triangle count modest.',
+      '`new TriangleMesh(x, y, z, vertices, triangles, collider)`',
+      'The collider is optional. Each triangle is three numbers: indexes into `vertices`. A TriangleMesh is solid from both sides, so the order of a triangle\'s corners does not matter. It stores each triangle twice, so keep the triangle count modest.',
       { demo: {
         id: 'bowl-mesh', title: 'A bowl built from triangles',
-        code: `// A bowl: rings of points on a curve, joined into triangles.
-function makeBowl(radius, rings, around) {
-  const vertices = [[0, 0, 0]];                       // the very bottom
-  for (let r = 1; r <= rings; r++) {
-    const dist = (r / rings) * radius;
-    for (let a = 0; a < around; a++) {
-      const angle = (a / around) * Math.PI * 2;
-      vertices.push([Math.cos(angle) * dist, dist * dist * 0.25, Math.sin(angle) * dist]);
-    }
-  }
-  const triangles = [];
-  for (let a = 0; a < around; a++) triangles.push([0, 1 + a, 1 + ((a + 1) % around)]);
-  for (let r = 1; r < rings; r++) {
-    for (let a = 0; a < around; a++) {
-      const i = 1 + (r - 1) * around + a, j = 1 + (r - 1) * around + ((a + 1) % around);
-      triangles.push([i, i + around, j], [j, i + around, j + around]);
-    }
-  }
-  return { vertices, triangles };
-}
-let balls = [];
+        code: `let ball;
+
 function setup() {
   world.gravity.y = -10;
-  const bowl = makeBowl(4, 6, 24);
-  const b = new TriangleMesh(0, 0, 0, bowl.vertices, bowl.triangles);
-  b.color = '#6272a4';
-  for (let i = 0; i < 5; i++) {
-    const s = new Sphere(random(-2, 2), 5 + i * 1.3, random(-2, 2), 0.9);
-    s.color = ['tomato', 'gold', 'skyblue', 'orchid', 'limegreen'][i];
-    s.bounciness = 0.3;
-    balls.push(s);
-  }
+  const vertices = [
+    [0, 0, 0],    // index 0 is the bottom
+    [-4, 2, -4],  // indexes 1 to 4 are the rim corners
+    [4, 2, -4],
+    [4, 2, 4],
+    [-4, 2, 4],
+  ];
+  const triangles = [
+    [0, 1, 2],
+    [0, 2, 3],
+    [0, 3, 4],
+    [0, 4, 1],
+  ];
+  const bowl = new TriangleMesh(0, 0, 0, vertices, triangles);
+  bowl.color = '#6272a4';
+  ball = new Sphere(1.5, 5, 0, 1);
+  ball.color = 'gold';
   camera.pos = [0, 7, 11];
   camera.lookAt(0, 0.5, 0);
 }
 `,
-        steps: [{ wait: 600 }],
-        expect: () => balls.every((s) => Math.hypot(s.x, s.z) < 2.2 && s.y < 1.8),
+        steps: [{ wait: 240 }],
+        expect: () => Math.abs(ball.x) < 2 && ball.y > 0.3 && ball.y < 1.5,
       } },
       { note: 'A `TriangleMesh` is checked when you make it: a `dynamic` one is refused with a plain message, and so is a list of vertices or triangles that is the wrong shape.' },
     ],

@@ -4,11 +4,14 @@ let lift, bullets = [];
 function setup() {
   world.gravity.y = -10;
   new Floor();
-  camera.pos = [0, 7, 16]; camera.lookAt(0, 2, 0);
+  camera.pos = [0, 7, 16];
+  camera.lookAt(0, 2, 0);
   lift = new Cube(-5, 0.2, 0, 4, 0.4, 4, 'kinematic');
-  lift.color = '#6272a4'; lift.friction = 1;
+  lift.color = '#6272a4';
+  lift.friction = 1;
   const crate = new Cube(-5, 1.4, 0, 1.5);
-  crate.color = 'gold'; crate.friction = 1;
+  crate.color = 'gold';
+  crate.friction = 1;
   const wall = new Cube(6, 2, 0, 0.1, 4, 10, 'static');
   wall.color = 'tomato';
   world.ignoreCollisions('bullet');
@@ -24,9 +27,17 @@ function update() {
     b.born = frameCount;
     bullets.push(b);
   }
-  bullets = bullets.filter((b) => { if (frameCount - b.born > 60) { b.remove(); return false; } return true; });
+  // Remove expired bullets from the end so their indexes stay valid.
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const bullet = bullets[i];
+    if (frameCount - bullet.born > 60) {
+      bullet.remove();
+      bullets.splice(i, 1);
+    }
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('The wall is 0.1 thick and the bullets fly at 120 m/s: isSuperFast stops them.', 12, 12);
 }

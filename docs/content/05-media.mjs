@@ -11,11 +11,17 @@ export default [
         code: `function setup() {
   world.gravity.y = -10;
   new Floor(20);
-  textureNames().forEach((name, i) => {
-    const s = new Cube(-6.3 + (i % 4) * 4.2, 1.2, i < 4 ? -2.5 : 2.5, 2.4, 2.4, 2.4, 'static');
-    s.texture = name;
-    s.text = name;               // a label above it (see Text labels)
-  });
+  const names = textureNames();
+  for (let i = 0; i < names.length; i++) {
+    const x = -6.3 + (i % 4) * 4.2;
+    let z = -2.5;
+    if (i >= 4) {
+      z = 2.5;
+    }
+    const cube = new Cube(x, 1.2, z, 2.4, 'static');
+    cube.texture = names[i];
+    cube.text = names[i];
+  }
   camera.pos = [0, 9, 13];
   camera.lookAt(0, 0.5, 0);
 }
@@ -57,11 +63,18 @@ function setup() {
         code: `let crate;
 function makeStamp() {                       // a small picture, drawn on a canvas
   const c = document.createElement('canvas');
-  c.width = c.height = 64;
+  c.width = 64;
+  c.height = 64;
   const g = c.getContext('2d');
-  g.fillStyle = '#ffb86c'; g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = '#282a36'; g.lineWidth = 6; g.strokeRect(3, 3, 58, 58);
-  g.fillStyle = '#282a36'; g.font = 'bold 40px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#ffb86c';
+  g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#282a36';
+  g.lineWidth = 6;
+  g.strokeRect(3, 3, 58, 58);
+  g.fillStyle = '#282a36';
+  g.font = 'bold 40px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
   g.fillText('S', 32, 35);
   return c.toDataURL();                      // the picture as a data: URL
 }
@@ -103,7 +116,7 @@ function setup() {
         'Start loading in [preload()](#/hooks) with `loadModel(name)`: `setup()` waits for it.',
         'Not supported: animations (a model is shown in one still pose), and a model keeps its **own** colours and pictures, so `color` and `texture` do not change it.',
       ] },
-      'You do not need a model file to try this. The demo builds a tiny `.glb` in memory (the `makeGlb` helper), then draws it twice: once with the plain box collider, and once wrapped in a hull so it topples onto one of its faces.',
+      'The demo loads a sample crystal from `assets/crystal.glb` and draws it twice. The first keeps its box collider. The second uses a hull so it topples onto one of its faces. To use your own model, replace the sample path with its web address.',
       { demo: {
         id: 'model-fit', title: 'A crystal model, with and without a hull collider',
         from: 'models',
@@ -166,7 +179,9 @@ function update() {
     const copy = box.clone();                 // the label comes with it
     copy.pos = [random(-3, 3), 4, random(-1, 1)];
   }
-  if (kb.presses('h')) box.visible = !box.visible;     // the label hides with it
+  if (kb.presses('h')) {
+    box.visible = !box.visible;     // the label hides with it
+  }
 }
 `,
         steps: [{ wait: 20 }, { press: 'Space' }, { wait: 5 }],
@@ -180,7 +195,8 @@ function update() {
     id: 'tiles', group: 'Objects', title: 'Tiles: a level from text',
     summary: 'Draw a level as rows of letters and let the engine build it.',
     blocks: [
-      '`new Tiles(layers, x, y, z, cell, legend)` builds a level from text. Each character is one cell, and the **legend** says which Group each character belongs to. It works like a map seen from above.',
+      '`new Tiles(layers, x, y, z, cellSize, legend)`',
+      'Pass the text layers first, then the starting position and cell size. The legend goes last. It maps each character to the Group that makes that tile.',
       { list: [
         '**Rows of characters** run along +x (left to right). **The rows** run along +z (toward you). **Layers** go up +y, bottom layer first.',
         '`(x, y, z)` is the **middle of the first cell**, and `cell` is how big each cell is (default 1).',

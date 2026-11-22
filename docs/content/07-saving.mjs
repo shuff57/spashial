@@ -24,15 +24,21 @@ function setup() {
   camera.lookAt(0, 0, 0);
 }
 function update() {
-  if (mouse.presses()) score++;
+  if (mouse.presses()) {
+    score++;
+  }
   if (score > best) {
     best = score;
     storeItem('hiscore', best);            // saved the moment it changes
   }
-  if (kb.presses('r')) { clearStorage(); best = 0; }
+  if (kb.presses('r')) {
+    clearStorage();
+    best = 0;
+  }
 }
 function drawTop() {
-  fill('white'); textSize(22);
+  fill('white');
+  textSize(22);
   text('score ' + score + '    best ' + best, 12, 12);
 }
 `,
@@ -49,8 +55,14 @@ function setup() {
   world.gravity.y = -10;
   new Floor(40);
   const saved = getItem('ball');                       // { x: 3, pushes: 3 } or null
-  ball = new Sphere(saved ? saved.x : -8, 1, 0, 1.6);
-  ball.pushes = saved ? saved.pushes : 0;
+  let x = -8;
+  let pushes = 0;
+  if (saved) {
+    x = saved.x;
+    pushes = saved.pushes;
+  }
+  ball = new Sphere(x, 1, 0, 1.6);
+  ball.pushes = pushes;
   camera.pos = [0, 5, 14];
   camera.lookAt(0, 1, 0);
 }
@@ -62,7 +74,8 @@ function update() {
   }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('pushed ' + ball.pushes + ' times', 12, 12);
 }
 `,

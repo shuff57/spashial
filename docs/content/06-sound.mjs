@@ -7,7 +7,8 @@ export default [
     id: 'sound', group: 'World', title: 'Sound',
     summary: 'Eight built-in sounds made in code, your own files, and sound that comes from a place.',
     blocks: [
-      '`loadSound(name)` gives you a `Sound`, and `sound.play()` plays it. Eight sounds are built in. They are **made in code**, so nothing downloads: `blip`, `coin`, `explode`, `hit`, `jump`, `laser`, `pop` and `thud`. `soundNames()` lists them, and any you add yourself.',
+      '`loadSound(nameOrAddress)`',
+      'Pass a built-in name such as `\'coin\'` or the address of a sound file. The call gives you a Sound. Call `sound.play()` to play it. Eight sounds are built in. They are **made in code**, so nothing downloads: `blip`, `coin`, `explode`, `hit`, `jump`, `laser`, `pop` and `thud`. `soundNames()` lists them, and any you add yourself.',
       { note: '**Click the picture first.** Browsers will not start audio until the person has clicked or pressed a key in the sketch. Until then a `play()` is **skipped** (the log says so once), while a `loop()` waits and starts as soon as sound is allowed. Some browsers start with sound allowed, so a sketch can seem fine on your computer and be silent on another. Play sounds in answer to a click or a key, and every demo on this page says to click first.' },
       { demo: {
         id: 'sound-board', title: 'Play each built-in sound',
@@ -16,7 +17,9 @@ export default [
 const sounds = {};
 let last = 'click the picture, then press 1 to 8', plays = 0;
 function setup() {
-  names.forEach((n) => { sounds[n] = loadSound(n); });
+  names.forEach((n) => {
+    sounds[n] = loadSound(n);
+  });
   camera.pos = [0, 3, 8];
   camera.lookAt(0, 0, 0);
 }
@@ -30,7 +33,8 @@ function update() {
   });
 }
 function drawTop() {
-  fill('white'); textSize(20);
+  fill('white');
+  textSize(20);
   text(last, 12, 12);
 }
 `,
@@ -62,14 +66,27 @@ function setup() {
 }
 function update() {
   hum.loop();                             // call it every frame: it never doubles up
-  if (kb.pressing('up')) hum.volume = Math.min(1, hum.volume + 0.01);
-  if (kb.pressing('down')) hum.volume = Math.max(0, hum.volume - 0.01);
-  if (kb.presses('f')) hum.fade(0, 1);    // down to silence over a second
-  if (kb.presses('g')) hum.fade(0.6, 1);  // and back up
+  if (kb.pressing('up')) {
+    hum.volume = Math.min(1, hum.volume + 0.01);
+  }
+  if (kb.pressing('down')) {
+    hum.volume = Math.max(0, hum.volume - 0.01);
+  }
+  if (kb.presses('f')) {
+    hum.fade(0, 1);    // down to silence over a second
+  }
+  if (kb.presses('g')) {
+    hum.fade(0.6, 1);  // and back up
+  }
 }
 function drawTop() {
-  fill('white'); textSize(18);
-  text('volume ' + hum.volume.toFixed(2) + (hum.playing ? '   playing' : '   waiting for a click'), 12, 12);
+  fill('white');
+  textSize(18);
+  let status = 'waiting for a click';
+  if (hum.playing) {
+    status = 'playing';
+  }
+  text('volume ' + hum.volume.toFixed(2) + '   ' + status, 12, 12);
 }
 `,
         steps: [{ click: 'center' }, { wait: 20 }, { press: 'f' }, { wait: 150 }],
@@ -91,14 +108,17 @@ function setup() {
   camera.lookAt(0, 1, 0);
 }
 function update() {
-  if (ball.x > 12) ball.x = -12;           // round again
+  if (ball.x > 12) {
+    ball.x = -12;           // round again
+  }
   if (frameCount % 30 === 0) {
     sound.playAt(ball);                    // from where the ball is now
     plays++;
   }
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('the blip comes from the ball: quieter far away, panned left and right', 12, 12);
 }
 `,

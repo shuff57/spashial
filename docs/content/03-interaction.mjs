@@ -9,9 +9,9 @@ export default [
     blocks: [
       'Click the picture once so it has the keyboard, then press keys. Three functions cover everything, and each one takes a key name.',
       { table: { head: ['Call', 'Answers', 'Use it for'], rows: [
-        ['`kb.presses(\'space\')`', '`true` on the **one frame** the key goes down', 'A jump, a shot, a menu choice.'],
-        ['`kb.pressing(\'d\')`', 'How many frames the key has been held (0 when it is up, so it also works as true or false)', 'Walking, steering, anything continuous.'],
-        ['`kb.released(\'space\')`', '`true` on the **one frame** the key comes up', 'Letting go of a charged shot.'],
+        ['`kb.presses(key)`', '`true` on the **one frame** the key goes down', 'A jump, a shot, a menu choice.'],
+        ['`kb.pressing(key)`', 'How many frames the key has been held (0 when it is up, so it also works as true or false)', 'Walking, steering, anything continuous.'],
+        ['`kb.released(key)`', '`true` on the **one frame** the key comes up', 'Letting go of a charged shot.'],
       ] } },
       'Key names are lowercase: letters and digits as they are (`\'a\'`, `\'7\'`), and `\'space\'`, `\'enter\'`, `\'tab\'`, `\'escape\'`, `\'shift\'`, `\'ctrl\'`, `\'up\'`, `\'down\'`, `\'left\'`, `\'right\'`. With **no name**, a call means any key: `kb.presses()`.',
       { demo: {
@@ -23,12 +23,17 @@ function setup() {
   camera.lookAt(0, 0, 0);
 }
 function update() {
-  if (kb.presses('space')) n.presses++;                          // once
+  if (kb.presses('space')) {
+    n.presses++;                          // once
+  }
   n.maxHeld = Math.max(n.maxHeld, kb.pressing('space'));         // counts up while held
-  if (kb.released('space')) n.released++;                        // once
+  if (kb.released('space')) {
+    n.released++;                        // once
+  }
 }
 function drawTop() {
-  fill('white'); textSize(18);
+  fill('white');
+  textSize(18);
   text('presses ' + n.presses + '    held ' + kb.pressing('space') + ' frames    released ' + n.released, 12, 12);
 }
 `,
@@ -50,12 +55,23 @@ function setup() {
   camera.follow(ball, { distance: 9, height: 5 });
 }
 function update() {
-  const speed = kb.pressing('shift') ? 0.2 : 0.1;
+  let speed = 0.1;
+  if (kb.pressing('shift')) {
+    speed = 0.2;
+  }
   let dx = 0, dz = 0;
-  if (kb.pressing('left')) dx -= 1;
-  if (kb.pressing('right')) dx += 1;
-  if (kb.pressing('up')) dz -= 1;
-  if (kb.pressing('down')) dz += 1;
+  if (kb.pressing('left')) {
+    dx -= 1;
+  }
+  if (kb.pressing('right')) {
+    dx += 1;
+  }
+  if (kb.pressing('up')) {
+    dz -= 1;
+  }
+  if (kb.pressing('down')) {
+    dz += 1;
+  }
   ball.vel.x = dx * speed;
   ball.vel.z = dz * speed;
 }
@@ -79,11 +95,20 @@ function setup() {
   camera.lookAt(0, 2.5, 0);
 }
 function update() {
-  if (!started && kb.presses()) { started = true; world.autoStep = true; }
+  if (!started && kb.presses()) {
+    started = true;
+    world.autoStep = true;
+  }
 }
 function drawTop() {
-  fill('white'); textSize(20); textAlign(CENTER);
-  text(started ? 'go!' : 'press any key', width / 2, 24);
+  fill('white');
+  textSize(20);
+  textAlign(CENTER);
+  if (started) {
+    text('go!', width / 2, 24);
+  } else {
+    text('press any key', width / 2, 24);
+  }
 }
 `,
         steps: [{ wait: 30 }, { press: 'x' }, { wait: 30 }],
@@ -118,9 +143,12 @@ function drawTop() {
   camera.lookAt(0, 0, 0);
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('mouse: ' + Math.round(mouse.x) + ', ' + Math.round(mouse.y), 12, 12);
-  noFill(); stroke('gold'); strokeWeight(2);
+  noFill();
+  stroke('gold');
+  strokeWeight(2);
   circle(mouse.x, mouse.y, 30);                 // a ring that follows the pointer
 }
 `,
@@ -145,8 +173,14 @@ function setup() {
 }
 function update() {
   for (const c of cubes) {
-    c.color = c.mouse.hovering() ? 'gold' : '#6272a4';
-    if (c.mouse.presses()) c.applyImpulse(0, 12, 0);     // click: pop it up
+    if (c.mouse.hovering()) {
+      c.color = 'gold';
+    } else {
+      c.color = '#6272a4';
+    }
+    if (c.mouse.presses()) {
+      c.applyImpulse(0, 12, 0);     // click: pop it up
+    }
   }
 }
 `,
@@ -171,8 +205,13 @@ function update() {
   under = world.getSolidAt(mouse.x, mouse.y);
 }
 function drawTop() {
-  fill('white'); textSize(18);
-  text(under ? 'pointing at a ' + under.shape : 'pointing at nothing', 12, 12);
+  fill('white');
+  textSize(18);
+  if (under) {
+    text('pointing at a ' + under.shape, 12, 12);
+  } else {
+    text('pointing at nothing', 12, 12);
+  }
 }
 `,
         steps: [{ move: 'center' }, { wait: 5 }],
@@ -194,10 +233,13 @@ function setup() {
   camera.lookAt(0, 6, 0);
 }
 function update() {
-  if (mouse.presses('right')) world.gravity.y = -world.gravity.y;
+  if (mouse.presses('right')) {
+    world.gravity.y = -world.gravity.y;
+  }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('gravity ' + world.gravity.y + '   (right-click to flip)', 12, 12);
 }
 `,
@@ -235,7 +277,11 @@ function setup() {
     const a = (i / 16) * Math.PI * 2, r = 6 + (i % 3);
     const wall = new Cube(Math.cos(a) * r, 1, Math.sin(a) * r, 2, 2, 2, 'static');
     wall.rotation.y = -a * 57.3;
-    wall.color = i % 2 ? '#6272a4' : '#8be9fd';
+    if (i % 2 === 0) {
+      wall.color = '#8be9fd';
+    } else {
+      wall.color = '#6272a4';
+    }
   }
   marker = new Sphere(0, 1, 0, 0.5, 'none');          // looked through by rays
   marker.color = 'gold';
@@ -245,10 +291,14 @@ function setup() {
 function update() {
   const a = frameCount * 0.02;
   const hit = world.rayCast([0, 1, 0], [Math.cos(a) * 20, 1, Math.sin(a) * 20]);
-  if (hit) { marker.pos = hit.point; hits++; }          // put the marker where the ray ended
+  if (hit) {
+    marker.pos = hit.point;
+    hits++;
+  }          // put the marker where the ray ended
 }
 function drawTop() {
-  fill('white'); textSize(14);
+  fill('white');
+  textSize(14);
   text('hits: ' + hits, 12, 12);
 }
 `,
@@ -274,8 +324,17 @@ function update() {
   past = world.rayCast([-6, 1, 0], [8, 1, 0], { ignore: shooter });     // looks past it
 }
 function drawTop() {
-  fill('white'); textSize(16);
-  text('plain: ' + (plain && plain.solid === shooter ? 'the shooter' : '?') + '    ignore: ' + (past && past.solid === target ? 'the target' : '?'), 12, 12);
+  fill('white');
+  textSize(16);
+  let firstHit = '?';
+  if (plain && plain.solid === shooter) {
+    firstHit = 'the shooter';
+  }
+  let hitWithIgnore = '?';
+  if (past && past.solid === target) {
+    hitWithIgnore = 'the target';
+  }
+  text('plain: ' + firstHit + '    ignore: ' + hitWithIgnore, 12, 12);
 }
 `,
         steps: [{ wait: 20 }],
@@ -297,8 +356,13 @@ function update() {
   list = world.rayCastAll([-10, 1, 0], [10, 1, 0]);
 }
 function drawTop() {
-  fill('white'); textSize(16);
-  text('the ray crosses: ' + list.map((h) => h.solid.color).join(', then '), 12, 12);
+  fill('white');
+  textSize(16);
+  const colors = [];
+  for (const hit of list) {
+    colors.push(hit.solid.color);
+  }
+  text('the ray crosses: ' + colors.join(', then '), 12, 12);
 }
 `,
         steps: [{ wait: 10 }],
@@ -328,16 +392,23 @@ function drawTop() {
         hint: 'Click the picture, then press the up and down arrow keys.',
         code: `function setup() {
   new Floor(30);
-  for (let i = 0; i < 6; i++) new Cube(-5 + i * 2, 1, -2 - i, 1.5, 2, 1.5, 'static').color = ['tomato', 'gold', 'skyblue'][i % 3];
+  for (let i = 0; i < 6; i++) {
+    new Cube(-5 + i * 2, 1, -2 - i, 1.5, 2, 1.5, 'static').color = ['tomato', 'gold', 'skyblue'][i % 3];
+  }
   camera.pos = [0, 3, 10];
   camera.lookAt(0, 1, -4);
 }
 function update() {
-  if (kb.pressing('up')) camera.fov = Math.max(20, camera.fov - 1);
-  if (kb.pressing('down')) camera.fov = Math.min(110, camera.fov + 1);
+  if (kb.pressing('up')) {
+    camera.fov = Math.max(20, camera.fov - 1);
+  }
+  if (kb.pressing('down')) {
+    camera.fov = Math.min(110, camera.fov + 1);
+  }
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('fov ' + camera.fov + ' degrees   (up and down)', 12, 12);
 }
 `,
@@ -345,6 +416,8 @@ function drawTop() {
         expect: () => camera.fov < 50,
       } },
       { h: 'Follow' },
+      '`camera.follow(solid, options)`',
+      'Pass the Solid to follow, then an optional object with `distance`, `height` and `tracking`. The example follows the ball with `camera.follow(ball, { distance: 8, height: 4, tracking: 0.08 })`.',
       'A follow camera hangs behind a Solid. Behind means behind the way the Solid is facing, so for a body that never turns (a locked character) it stays on the +z side. A bigger `tracking` keeps up faster; a smaller one lags and feels floaty.',
       { demo: {
         id: 'camera-follow', title: 'Follow a rolling ball',
@@ -353,14 +426,21 @@ function drawTop() {
 function setup() {
   world.gravity.y = -10;
   new Floor(200);
-  for (let i = 0; i < 20; i++) new Cube(i * 6 - 30, 1, -4, 1, 2, 1, 'static').color = i % 2 ? 'gold' : 'tomato';
+  for (let i = 0; i < 20; i++) {
+    const marker = new Cube(i * 6 - 30, 1, -4, 1, 2, 1, 'static');
+    marker.color = 'gold';
+  }
   ball = new Sphere(0, 1, 0, 1.4);
   ball.color = 'skyblue';
   camera.follow(ball, { distance: 8, height: 4, tracking: 0.08 });
 }
 function update() {
-  if (kb.pressing('d')) ball.applyForce(12, 0, 0);
-  if (kb.pressing('a')) ball.applyForce(-12, 0, 0);
+  if (kb.pressing('d')) {
+    ball.applyForce(12, 0, 0);
+  }
+  if (kb.pressing('a')) {
+    ball.applyForce(-12, 0, 0);
+  }
 }
 `,
         steps: [{ down: 'd' }, { wait: 90 }, { up: 'd' }, { wait: 60 }],
@@ -381,7 +461,8 @@ function setup() {
   startX = camera.x;
 }
 function drawTop() {
-  fill('white'); textSize(16);
+  fill('white');
+  textSize(16);
   text('drag to orbit', 12, 12);
 }
 `,
@@ -404,12 +485,24 @@ function drawTop() {
 }
 function update() {
   const s = 0.15;
-  if (kb.pressing('w')) camera.z -= s;
-  if (kb.pressing('s')) camera.z += s;
-  if (kb.pressing('a')) camera.x -= s;
-  if (kb.pressing('d')) camera.x += s;
-  if (kb.pressing('e')) camera.y += s;
-  if (kb.pressing('q')) camera.y -= s;
+  if (kb.pressing('w')) {
+    camera.z -= s;
+  }
+  if (kb.pressing('s')) {
+    camera.z += s;
+  }
+  if (kb.pressing('a')) {
+    camera.x -= s;
+  }
+  if (kb.pressing('d')) {
+    camera.x += s;
+  }
+  if (kb.pressing('e')) {
+    camera.y += s;
+  }
+  if (kb.pressing('q')) {
+    camera.y -= s;
+  }
 }
 `,
         steps: [{ down: 'w' }, { wait: 30 }, { up: 'w' }],
@@ -468,7 +561,8 @@ function setup() {
   ambientLight.intensity = 1.2;
   new Cube(-3, 1, 0, 2, 2, 2, 'static').color = 'tomato';
   ball = new Sphere(1, 5, 0, 1.4);
-  ball.bounciness = 0.9; ball.color = 'gold';
+  ball.bounciness = 0.9;
+  ball.color = 'gold';
   camera.pos = [0, 5, 11];
   camera.lookAt(0, 1.5, 0);
 }
@@ -488,7 +582,10 @@ function setup() {
   sunLight.direction = [-0.15, -1, -0.2];
   sunLight.intensity = 1.8;
   ambientLight.intensity = 1.2;
-  for (let i = 0; i < 12; i++) new Cube(i * 6 - 6, 1.5, -3, 1.5, 3, 1.5, 'static').color = i % 2 ? 'gold' : 'skyblue';
+  for (let i = 0; i < 12; i++) {
+    const pillar = new Cube(i * 6 - 6, 1.5, -3, 1.5, 3, 1.5, 'static');
+    pillar.color = 'skyblue';
+  }
   player = new Cube(0, 0.5, 0);
   player.color = 'tomato';
   player.lockRotation = true;
@@ -496,8 +593,16 @@ function setup() {
   camera.follow(player, { distance: 9, height: 5 });
 }
 function update() {
-  player.vel.x = kb.pressing('d') ? 0.12 : kb.pressing('a') ? -0.12 : 0;
-  if (kb.presses('space') && player.y < 0.6) player.applyImpulse(0, 6, 0);
+  if (kb.pressing('d')) {
+    player.vel.x = 0.12;
+  } else if (kb.pressing('a')) {
+    player.vel.x = -0.12;
+  } else {
+    player.vel.x = 0;
+  }
+  if (kb.presses('space') && player.y < 0.6) {
+    player.applyImpulse(0, 6, 0);
+  }
 }
 `,
         steps: [{ down: 'd' }, { wait: 190 }, { up: 'd' }, { wait: 10 }],
@@ -597,16 +702,26 @@ function draw() {
   camera.lookAt(0, 2, 0);
 }
 function drawTop() {
-  fill('#282a36'); stroke('white'); strokeWeight(2);
+  fill('#282a36');
+  stroke('white');
+  strokeWeight(2);
   rect(10, 10, 220, 64);                          // a panel
-  noStroke(); fill('white'); textSize(18);
+  noStroke();
+  fill('white');
+  textSize(18);
   text('SCORE ' + frameCount, 22, 20);
-  fill('tomato'); circle(30, 56, 14);             // a lives marker
-  fill('gold'); rect(50, 50, 150, 12);            // a bar
-  stroke('white'); strokeWeight(1);
+  fill('tomato');
+  circle(30, 56, 14);             // a lives marker
+  fill('gold');
+  rect(50, 50, 150, 12);            // a bar
+  stroke('white');
+  strokeWeight(1);
   line(width / 2 - 12, height / 2, width / 2 + 12, height / 2);   // a crosshair
   line(width / 2, height / 2 - 12, width / 2, height / 2 + 12);
-  noStroke(); fill('white'); textAlign(CENTER); textSize(14);
+  noStroke();
+  fill('white');
+  textAlign(CENTER);
+  textSize(14);
   text('centred text', width / 2, height - 30);
   textAlign(LEFT);
 }
@@ -626,14 +741,25 @@ function setup() {
   new Floor(10);
 }
 function update() {
-  if (kb.presses('space')) health = Math.max(0, health - 20);
-  if (kb.presses('r')) health = 100;
+  if (kb.presses('space')) {
+    health = Math.max(0, health - 20);
+  }
+  if (kb.presses('r')) {
+    health = 100;
+  }
 }
 function drawTop() {
   noStroke();
-  fill('#44475a'); rect(12, 12, 200, 18);                  // the empty bar
-  fill(health > 40 ? '#50fa7b' : '#ff5555'); rect(12, 12, 2 * health, 18);   // what is left
-  fill('white'); textSize(14);
+  fill('#44475a');
+  rect(12, 12, 200, 18);                  // the empty bar
+  if (health > 40) {
+    fill('#50fa7b');
+  } else {
+    fill('#ff5555');
+  }
+  rect(12, 12, 2 * health, 18);   // what is left
+  fill('white');
+  textSize(14);
   text(health + ' / 100', 220, 14);
 }
 `,

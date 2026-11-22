@@ -28,10 +28,18 @@ function setup() {
 }
 function update() {
   let dx = 0, dz = 0;
-  if (kb.pressing('a')) dx -= 1;
-  if (kb.pressing('d')) dx += 1;
-  if (kb.pressing('w')) dz -= 1;
-  if (kb.pressing('s')) dz += 1;
+  if (kb.pressing('a')) {
+    dx -= 1;
+  }
+  if (kb.pressing('d')) {
+    dx += 1;
+  }
+  if (kb.pressing('w')) {
+    dz -= 1;
+  }
+  if (kb.pressing('s')) {
+    dz += 1;
+  }
   player.vel.x = dx * 0.08;
   player.vel.z = dz * 0.08;
   player.overlaps(coins, (p, coin) => {

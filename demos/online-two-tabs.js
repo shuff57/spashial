@@ -9,19 +9,37 @@ function setup() {
   me.lockRotation = true;
   me.friction = 0;
   online.share(me);                               // everyone else sees this cube, as a ghost
-  camera.pos = [0, 8, 13]; camera.lookAt(0, 1, 0);
+  camera.pos = [0, 8, 13];
+  camera.lookAt(0, 1, 0);
 }
 function update() {
   let dx = 0, dz = 0;
-  if (kb.pressing('a')) dx -= 1;
-  if (kb.pressing('d')) dx += 1;
-  if (kb.pressing('w')) dz -= 1;
-  if (kb.pressing('s')) dz += 1;
+  if (kb.pressing('a')) {
+    dx -= 1;
+  }
+  if (kb.pressing('d')) {
+    dx += 1;
+  }
+  if (kb.pressing('w')) {
+    dz -= 1;
+  }
+  if (kb.pressing('s')) {
+    dz += 1;
+  }
   me.vel.x = dx * 0.1;
   me.vel.z = dz * 0.1;
-  me.color = online.seat === 0 ? 'tomato' : 'dodgerblue';
+  if (online.seat === 0) {
+    me.color = 'tomato';
+  } else {
+    me.color = 'dodgerblue';
+  }
 }
 function drawTop() {
-  fill('white'); textSize(14);
-  text('status: ' + online.status + (online.code ? '   room: ' + online.code : ''), 12, 12);
+  fill('white');
+  textSize(14);
+  let message = 'status: ' + online.status;
+  if (online.code) {
+    message += '   room: ' + online.code;
+  }
+  text(message, 12, 12);
 }

@@ -31,13 +31,18 @@ function setup() {
 function update() {
   if (mouse.presses() && myTurn()) {
     const c = new Cube(random(-3, 3), 6, random(-1, 1), 1.2);
-    c.color = turn === 0 ? 'tomato' : 'skyblue';     // each player has a colour
+    if (turn === 0) {
+      c.color = 'tomato';
+    } else {
+      c.color = 'skyblue';
+    }
     placed++;
     nextTurn();                                       // pass the turn on
   }
 }
 function drawTop() {
-  fill('white'); textSize(20);
+  fill('white');
+  textSize(20);
   text('player ' + (turn + 1) + ' to place a cube    (' + placed + ' placed)', 12, 12);
 }
 `,
@@ -70,10 +75,13 @@ function setup() {
   camera.lookAt(0, 0, 0);
 }
 function update() {
-  if (mouse.presses() && online.status === 'ready') online.send({ n: 1 });
+  if (mouse.presses() && online.status === 'ready') {
+    online.send({ n: 1 });
+  }
 }
 function drawTop() {
-  fill('white'); textSize(22);
+  fill('white');
+  textSize(22);
   text('total ' + total, 12, 12);
   textSize(15);
   text(last, 12, 44);
