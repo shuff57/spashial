@@ -26,6 +26,9 @@ for (const p of pages) for (const b of p.blocks) if (b.demo) jobs.push({ kind: '
 for (const r of REFERENCE.find((o) => o.object === 'Solid').members) if (r.try || r.tryUpdate) jobs.push({ kind: 'try', name: `try/${r.name}`, id: `try-${r.name}`, code: tryCode(r), steps: [{ wait: 90 }], expect: () => frameCount >= 90 });
 // What the standalone demos must do, beyond starting clean. Any demo not listed just has to run.
 const FILE_CHECKS = {
+  'coin-loop': { steps: [{ click: 'center' }, { wait: 20 }, { down: 'w' }, { press: 'Space' }, { wait: 18 }, { up: 'w' }], expect: () => collected === 1 && dashReady > frameCount },
+  'step-stack': { steps: [{ wait: 30 }, { down: 'd' }, { press: 'Space' }, { wait: 32 }, { up: 'd' }, { wait: 35 }], expect: () => checkpoint === 1 },
+  'ring-roll': { steps: [{ click: 'center' }, { wait: 20 }, { down: 'Shift' }, { down: 'w' }, { wait: 24 }, { up: 'w' }, { up: 'Shift' }], expect: () => next === 1 && charge < 100 },
   'wrecking-ball': { steps: [{ wait: 400 }], expect: () => [...__spashial.solids].some((s) => s._collider === 'dynamic' && s._shape === 'box' && s.x > 4) },
   dominoes: { steps: [{ wait: 30 }, { press: 'Space' }, { wait: 800 }], expect: () => dominoes.filter((d) => d.y < 0.7).length > 18 },
   bowling: { steps: [{ wait: 30 }, { press: 'Space' }, { wait: 200 }], expect: () => pins.filter((p) => p.y < 0.5 || Math.abs(p.rotation.x) > 40 || Math.abs(p.rotation.z) > 40).length >= 3 },

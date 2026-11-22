@@ -1,5 +1,26 @@
 [
   {
+    "id": "coin-loop",
+    "title": "Coin Loop",
+    "blurb": "Grab seven coins, dash past the patrol, and outrun the chaser.",
+    "hint": "WASD or arrows to move. Space dashes. A tag sends you back and adds two seconds.",
+    "file": "coin-loop.js"
+  },
+  {
+    "id": "step-stack",
+    "title": "Step Stack",
+    "blurb": "Cross seven towers before the cracked ledges give way.",
+    "hint": "A/D or left/right to move. Space jumps. Watch for flashing ledges and save checkpoints on solid towers.",
+    "file": "step-stack.js"
+  },
+  {
+    "id": "ring-roll",
+    "title": "Ring Roll",
+    "blurb": "Race through five gates. Boost on straightaways and brake for the turns.",
+    "hint": "WASD or arrows to steer. Shift boosts on the track. Space brakes. Stay inside the border.",
+    "file": "ring-roll.js"
+  },
+  {
     "id": "falling-cubes",
     "title": "Falling cubes",
     "blurb": "Turn gravity on and watch three shapes drop onto a floor.",
