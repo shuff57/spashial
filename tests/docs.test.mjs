@@ -121,8 +121,11 @@ try {
   await page.evaluate(() => window.examplesReady);
   await page.fill('#code', 'function setup() {}');
   await page.click('#run');
-  await page.waitForFunction(() => document.getElementById('log').innerText.includes('running'), null, { timeout: 90000 });
-  const frame = page.frames().find((f) => f.url().includes('runner.html'));
+  const runnerUrl = await page.locator('#frame').getAttribute('src');
+  const frame = await page.locator('#frame').elementHandle().then((element) => element.contentFrame());
+  // The first sketch can still report ready while the second iframe navigation starts.
+  await frame.waitForURL(runnerUrl, { timeout: 90000 });
+  await frame.waitForFunction(() => typeof Solid === 'function', null, { timeout: 90000 });
   const spec = REFERENCE.map((o) => ({ object: o.object, rows: o.members.map((m) => ({ name: m.name, kind: m.kind, def: m.default })) }));
   const out = await frame.evaluate((spec) => {
     const protos = { Solid, Group, Hull, TriangleMesh, HingeJoint, BallJoint, DistanceJoint, SliderJoint, GlueJoint, PointLight, SpotLight };
