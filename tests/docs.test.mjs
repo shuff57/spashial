@@ -10,7 +10,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { pages, groups, REFERENCE, GLOBALS, GLOBAL_VALUES } from '../docs/content/index.mjs';
 import ts from 'typescript';
-import { start, reporter } from './launch.mjs';
+import { currentRunner, start, reporter } from './launch.mjs';
 
 const t = reporter('docs: content, typings and engine agree');
 const dts = readFileSync(new URL('../docs/spashial.d.ts', import.meta.url), 'utf8');
@@ -121,10 +121,8 @@ try {
   await page.evaluate(() => window.examplesReady);
   await page.fill('#code', 'function setup() {}');
   await page.click('#run');
-  const runnerUrl = await page.locator('#frame').getAttribute('src');
-  const frame = await page.locator('#frame').elementHandle().then((element) => element.contentFrame());
   // The first sketch can still report ready while the second iframe navigation starts.
-  await frame.waitForURL(runnerUrl, { timeout: 90000 });
+  const frame = await currentRunner(page);
   await frame.waitForFunction(() => typeof Solid === 'function', null, { timeout: 90000 });
   const spec = REFERENCE.map((o) => ({ object: o.object, rows: o.members.map((m) => ({ name: m.name, kind: m.kind, def: m.default })) }));
   const out = await frame.evaluate((spec) => {

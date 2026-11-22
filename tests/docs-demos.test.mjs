@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { pages, REFERENCE } from '../docs/content/index.mjs';
 import { tryCode } from '../docs/try-template.mjs';
-import { start, reporter } from './launch.mjs';
+import { currentRunner, start, reporter } from './launch.mjs';
 
 const t = reporter('docs: every demo runs and does what its page says');
 const only = process.env.ONLY;
@@ -43,10 +43,10 @@ for (const d of JSON.parse(readFileSync(new URL('../demos/index.json', import.me
 const todo = jobs.filter((j) => !only || j.id.includes(only) || j.name.includes(only));
 
 const env = await start();
-const runnerOf = (page) => page.frames().find((f) => f.url().includes('runner.html'));
 const logOf = (page) => page.innerText('#log');
 
 async function waitFrames(frame, n, timeout) {
+  await frame.waitForFunction(() => Number.isFinite(window.frameCount), null, { timeout });
   const now = await frame.evaluate(() => window.frameCount);
   await frame.waitForFunction((target) => window.frameCount >= target, now + n, { timeout, polling: 100 });
 }
@@ -67,7 +67,7 @@ async function perform(page, frame, steps) {
     else if (s.mup) await page.mouse.up();
     else if (s.rerun) { // press Run again: what the first run saved must be there for the second
       await page.click('#run');
-      await page.waitForFunction(() => document.getElementById('log').innerText.trim() === 'running', null, { timeout: 90000 });
+      await currentRunner(page);
       await waitFrames(frame, 5, 90000);
     }
     else throw new Error('unknown step ' + JSON.stringify(s));
@@ -78,6 +78,7 @@ async function runJob(page, job) {
   await page.evaluate(() => localStorage.clear());   // the sandbox page is the host that keeps saved values: start each demo with none
   await page.fill('#code', job.code);
   await page.click('#run');
+  const frame = await currentRunner(page);
   await page.waitForFunction(() => document.getElementById('log').innerText.length > 0, null, { timeout: 120000 });
   if (job.error) {
     await page.waitForFunction((rx) => new RegExp(rx).test(document.getElementById('log').innerText), job.error.message.source, { timeout: 60000 }).catch(() => {});
@@ -85,7 +86,6 @@ async function runJob(page, job) {
     if (!job.error.message.test(log)) return { ok: false, detail: `wanted ${job.error.message}, log was: ${log.slice(0, 200)}` };
     if (!new RegExp(`\\(line ${job.error.line}\\)`).test(log)) return { ok: false, detail: `wanted line ${job.error.line}, log was: ${log.slice(0, 200)}` };
     if (job.stops) {
-      const frame = runnerOf(page);
       const a = await frame.evaluate(() => window.frameCount); await page.waitForTimeout(700);
       const b = await frame.evaluate(() => window.frameCount);
       if (a !== b) return { ok: false, detail: `the loop kept running after the error (${a} -> ${b})` };
@@ -94,7 +94,6 @@ async function runJob(page, job) {
   }
   const first = await logOf(page);
   if (!/running/.test(first)) { await page.waitForTimeout(500); const again = await logOf(page); if (!/running/.test(again)) return { ok: false, detail: `did not start: ${again.slice(0, 240)}` }; }
-  const frame = runnerOf(page);
   try { await perform(page, frame, job.steps ?? [{ wait: 120 }]); }
   catch (e) { return { ok: false, detail: `${e.message.split('\n')[0]}; the sketch's log said: ${(await logOf(page)).replace(/\n/g, ' | ').slice(0, 240)}` }; }
   if (process.env.DEBUG_EXPR) console.log(`  [debug ${job.name}]`, JSON.stringify(await frame.evaluate(process.env.DEBUG_EXPR)));
@@ -126,7 +125,7 @@ async function runTwoTabs(job) {
     await b.waitForSelector('#lobby.on', { timeout: 90000 });
     await b.fill('#lobby input', room);
     await b.click('#lobby button:has-text("Join")');
-    const fa = runnerOf(a), fb = runnerOf(b);
+    const [fa, fb] = await Promise.all([currentRunner(a), currentRunner(b)]);
     for (const f of [fa, fb]) await f.waitForFunction(() => online.status === 'ready', null, { timeout: 60000 });
     await Promise.all([perform(a, fa, job.steps ?? [{ wait: 60 }]), perform(b, fb, job.stepsB ?? [{ wait: 60 }])]);
     await waitFrames(fa, 30, 90000);                                  // let the last messages arrive

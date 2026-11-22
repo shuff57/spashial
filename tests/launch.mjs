@@ -32,6 +32,16 @@ export async function start({ viewport = { width: 1280, height: 760 }, deviceSca
   };
 }
 
+/** Wait for the sketch selected by the last Run click to replace the old iframe document. */
+export async function currentRunner(page) {
+  const iframe = page.locator('#frame');
+  const url = await iframe.getAttribute('src');
+  const element = await iframe.elementHandle();
+  const frame = await element.contentFrame();
+  await frame.waitForURL(url, { timeout: 90000 });
+  return frame;
+}
+
 /** The tiny pass/fail reporter the tests share. */
 export function reporter(title) {
   const fails = [];
