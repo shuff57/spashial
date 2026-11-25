@@ -5,7 +5,7 @@ real rigid-body physics ([Jolt][], a physics engine used in commercial games). T
 globals: `Solid`, `Group`, `world`, `camera`, `kb` and `mouse`. No imports, no install, no build step.
 
 It is the 3D sibling of [moSHion](https://github.com/shuff57/moshion), a 2D engine, and it grew out of
-the [shCode](https://github.com/shuff57/shCode) high-school JavaScript course, where students write
+the [seSHion](https://github.com/shuff57/seSHion) high-school JavaScript course, where students write
 games in a sandboxed iframe. If you know moSHion, the hooks, `Group`, the four collider words and the
 touch verbs (`collides`, `overlaps` and friends) are the same.
 
@@ -135,7 +135,7 @@ npm test
 | `tests/physics.test.mjs` | The Jolt layer, in Node: resting heights, joints, ray casts, collision groups, meshes (250 tests). |
 | `tests/types.test.mjs` | `docs/spashial.d.ts` accepts the sketches students really write: `tests/types-probe.ts` is type-checked with `tsc --strict`. |
 | `tests/sound.test.mjs` | The sound system, in Node, against a fake Web Audio (57 tests). |
-| `tests/online.test.mjs` | Online play, in Node: the sketch half wired to the host half over a real BroadcastChannel (92 tests; 2 more compare with shCode files and are skipped here). |
+| `tests/online.test.mjs` | Online play, in Node: the sketch half wired to the host half over a real BroadcastChannel (92 tests; 2 more compare with seSHion files and are skipped here). |
 | `tests/docs.test.mjs` | The docs agree with themselves, with `docs/spashial.d.ts` and with the running engine: every documented name exists and every documented default is true. |
 | `tests/browser.test.mjs` | The engine in a real browser, from inside the sandboxed frame: the sketch API, errors with line numbers, input, quality, shadows, every example. |
 | `tests/docs-demos.test.mjs` | Every docs demo, every "Try it" row and every standalone demo: runs it, performs its key presses and clicks, and checks the claim its page makes. |
